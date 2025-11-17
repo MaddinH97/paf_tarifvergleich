@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tarifvergleich – Reiter & Chart</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f5f5;
+    }
+
+    /* Reiterleiste */
+    .tab-bar {
+      display: flex;
+      align-items: center;
+      background: #1f2933;
+      color: #fff;
+      padding: 0.5rem 1rem;
+    }
+
+    .tab {
+      padding: 0.4rem 0.8rem;
+      margin-right: 0.4rem;
+      background: #374151;
+      border-radius: 4px 4px 0 0;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: #ffffff;
+      color: #111827;
+    }
+
+    .tab-title {
+      margin-right: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .tab-close {
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .tab-add {
+      margin-left: auto;
+      background: #10b981;
+      border: none;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      font-size: 1.2rem;
+      cursor: pointer;
+      color: #fff;
+    }
+
+    /* Inhalt */
+    #tabContents {
+      background: #ffffff;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .tab-content {
+      padding: 1rem 1.5rem 2rem;
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .layout-top {
+      display: flex;
+      gap: 2rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .column-left,
+    .column-right {
+      flex: 1;
+      background: #f9fafb;
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .column-left h2,
+    .column-right h2 {
+      margin-top: 0;
+      font-size: 1rem;
+      margin-bottom: 0.8rem;
+    }
+
+    /* Formular links */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 0.6rem;
+    }
+
+    .form-group label {
+      font-size: 0.85rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .form-group input,
+    .form-group select {
+      padding: 0.4rem;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+    }
+
+    /* Tarife rechts */
+    .tariff-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .tariff-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 0.5rem;
+    }
+
+    .tariff-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 0.3rem;
+      font-size: 0.9rem;
+    }
+
+    .tariff-item label {
+      margin-left: 0.4rem;
+    }
+
+    .btn-all {
+      border: 1px solid #4b5563;
+      background: #fff;
+      padding: 0.2rem 0.6rem;
+      font-size: 0.8rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    /* Graph-Bereich */
+    .chart-container {
+      margin-top: 1rem;
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 1rem;
+      border: 1px solid #e5e7eb;
+      height: 260px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Reiterleiste -->
+<div class="tab-bar" id="tabBar">
+  <button class="tab-add" id="addTabBtn">+</button>
+</div>
+
+<!-- Inhalte der Reiter -->
+<div id="tabContents"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+  let tabCounter = 0;
+  const charts = {};
+
+  const tabBar = document.getElementById('tabBar');
+  const addTabBtn = document.getElementById('addTabBtn');
+  const tabContents = document.getElementById('tabContents');
+
+  function createTab() {
+    tabCounter++;
+    const tabId = 'tab-' + tabCounter;
+
+    // ----- Tab-Button -----
+    const tabEl = document.createElement('div');
+    tabEl.className = 'tab';
+    tabEl.dataset.tabId = tabId;
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'tab-title';
+    titleSpan.textContent = 'Berechnung ' + tabCounter;
+
+    const closeSpan = document.createElement('span');
+    closeSpan.className = 'tab-close';
+    closeSpan.textContent = '×';
+
+    tabEl.appendChild(titleSpan);
+    tabEl.appendChild(closeSpan);
+    tabBar.insertBefore(tabEl, addTabBtn);
+
+    // ----- Tab-Inhalt -----
+    const contentEl = document.createElement('div');
+    contentEl.className = 'tab-content';
+    contentEl.id = tabId;
+
+    contentEl.innerHTML = `
+        <div class="layout-top">
+          <!-- Links: Eingaben -->
+          <div class="column-left">
+            <h2>Parameter</h2>
+
+            <div class="form-group">
+              <label>Einstiegsalter</label>
+              <input type="number" placeholder="z.B. 30">
+            </div>
+
+            <div class="form-group">
+              <label>Auszahlungsalter</label>
+              <input type="number" placeholder="z.B. 67">
+            </div>
+
+            <div class="form-group">
+              <label>Sparrate (€/Monat)</label>
+              <input type="number" placeholder="z.B. 200">
+            </div>
+
+            <div class="form-group">
+              <label>Fondswechsel 1 (Jahr)</label>
+              <input type="number" placeholder="z.B. 10">
+            </div>
+
+            <div class="form-group">
+              <label>Fondswechsel 2 (Jahr)</label>
+              <input type="number" placeholder="z.B. 20">
+            </div>
+
+            <div class="form-group">
+              <label>Steuersatz Rente (%)</label>
+              <input type="number" placeholder="z.B. 18">
+            </div>
+
+            <div class="form-group">
+              <label>Fondsauswahl</label>
+              <select>
+                <option>Global Growth</option>
+                <option>European Equity</option>
+                <option>Nachhaltigkeit Welt</option>
+                <option>Defensiv Mix</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Rechts: Tarifauswahl -->
+          <div class="column-right">
+            <div class="tariff-header">
+              <h2>Tarife auswählen</h2>
+              <button class="btn-all">Alle auswählen</button>
+            </div>
+
+            <div class="tariff-list">
+              <div class="tariff-item">
+                <input type="checkbox">
+                <label>Anbieter A – Tarif Komfort</label>
+              </div>
+              <div class="tariff-item">
+                <input type="checkbox">
+                <label>Anbieter B – Tarif Flex</label>
+              </div>
+              <div class="tariff-item">
+                <input type="checkbox">
+                <label>Anbieter C – Fondsrente Plus</label>
+              </div>
+              <div class="tariff-item">
+                <input type="checkbox">
+                <label>Anbieter D – Klassik Rente</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Graph -->
+        <div class="chart-container">
+          <canvas id="chart-${tabId}"></canvas>
+        </div>
+      `;
+
+    tabContents.appendChild(contentEl);
+
+    setActiveTab(tabId);
+    initAllButton(contentEl);
+    initChart(tabId);
+  }
+
+  function initAllButton(contentEl) {
+    const btnAll = contentEl.querySelector('.btn-all');
+    const checkboxes = contentEl.querySelectorAll('.tariff-item input');
+
+    btnAll.addEventListener('click', () => {
+      const allChecked = [...checkboxes].every(c => c.checked);
+      checkboxes.forEach(c => c.checked = !allChecked);
+    });
+  }
+
+  function initChart(tabId) {
+    const ctx = document.getElementById(`chart-${tabId}`).getContext('2d');
+
+    const years = [];
+    const values = [];
+    let value = 0;
+
+    for (let i = 0; i <= 30; i++) {
+      years.push("Jahr " + i);
+      values.push(value);
+      value += 2000;
+    }
+
+    charts[tabId] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: years,
+        datasets: [{
+          label: 'Wertentwicklung',
+          data: values,
+          borderColor: '#2563eb',
+          borderWidth: 2,
+          fill: false,
+          tension: 0.2,
+          pointRadius: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false
+      }
+    });
+  }
+
+  function setActiveTab(tabId) {
+    document.querySelectorAll('.tab').forEach(tab =>
+            tab.classList.toggle('active', tab.dataset.tabId === tabId)
+    );
+
+    document.querySelectorAll('.tab-content').forEach(content =>
+            content.classList.toggle('active', content.id === tabId)
+    );
+  }
+
+  tabBar.addEventListener('click', (event) => {
+    const tabEl = event.target.closest('.tab');
+    if (!tabEl) return;
+
+    const tabId = tabEl.dataset.tabId;
+
+    if (event.target.classList.contains('tab-close')) {
+      closeTab(tabId);
+    } else {
+      setActiveTab(tabId);
+    }
+  });
+
+  function closeTab(tabId) {
+    if (charts[tabId]) {
+      charts[tabId].destroy();
+      delete charts[tabId];
+    }
+
+    document.getElementById(tabId)?.remove();
+    document.querySelector(`.tab[data-tab-id="${tabId}"]`)?.remove();
+
+    const otherTab = document.querySelector('.tab');
+    if (otherTab) setActiveTab(otherTab.dataset.tabId);
+  }
+
+  addTabBtn.addEventListener('click', createTab);
+
+  window.addEventListener('DOMContentLoaded', createTab);
+</script>
+
+</body>
+</html>
