@@ -1,15 +1,33 @@
 package de.paf.tarifvergleich.domain;
 
-import java.math.BigDecimal;
+import jakarta.persistence.*;
+import lombok.*;
 
+import java.math.BigDecimal;
+import java.util.List;
+
+@Entity
+@Table(name = "fonds")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Fonds {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     private String isin;
     private String name;
-    private String typ;          // z.B. Aktienfonds, Mischfonds
+    private String typ;          // Aktienfonds, Mischfonds, ...
     private String risikoklasse; // niedrig/mittel/hoch
-    private BigDecimal erwarteteRenditePa; // z.B. 0.05 = 5 %
+    private BigDecimal erwarteteRenditePa;
 
-    public Fonds() {
-    }
+    /**
+     * Viele Tarife können denselben Fonds nutzen (n:m).
+     */
+    @ManyToMany(mappedBy = "fondsListe")
+    @ToString.Exclude
+    private List<Tarif> tarife;
 }
