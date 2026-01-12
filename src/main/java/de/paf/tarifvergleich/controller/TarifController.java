@@ -1,15 +1,13 @@
 package de.paf.tarifvergleich.controller;
 
+import de.paf.tarifvergleich.controller.dto.TarifKurzDto;
 import de.paf.tarifvergleich.domain.Tarif;
 import de.paf.tarifvergleich.repository.KostenstrukturRepository;
 import de.paf.tarifvergleich.repository.TarifRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import de.paf.tarifvergleich.domain.Kostenstruktur;
 
 @RestController
 @RequestMapping("/api/tarife")
@@ -19,37 +17,36 @@ public class TarifController {
     private final TarifRepository tarifRepository;
     private final KostenstrukturRepository kostenstrukturRepository;
 
+    // (optional) alte "alles"-Liste kannst du behalten – aber UI sollte sie NICHT nutzen
     @GetMapping
     public List<Tarif> getAll() {
         return tarifRepository.findAll();
     }
 
-    // ✅ NEU: nur Tarife, die für Beitrag+Laufzeit eine aktive Kostenstruktur haben
+    // ✅ NEU: nur Tarife, die für Beitrag+Laufzeit eine aktive Kostenstruktur haben UND Tarif aktiv ist
     @GetMapping("/verfuegbar")
-    public List<Tarif> verfuegbar(
+    public List<TarifKurzDto> verfuegbar(
             @RequestParam Integer beitrag,
             @RequestParam Integer laufzeit
     ) {
         return kostenstrukturRepository
                 .findByBeitragMonatAndLaufzeitJahreAndAktivTrue(beitrag, laufzeit)
                 .stream()
-                .map(Kostenstruktur::getTarif)
+                .map(k -> k.getTarif())          // Tarif aus Kostenstruktur
+                .filter(t -> t.getAktiv() !=null && t.getAktiv())          // BEIDES: Tarif muss aktiv sein
                 .distinct()
+                .map(t -> new TarifKurzDto(
+                        t.getId(),
+                        t.getTarifName(),
+                        t.getTarifCode(),
+                        t.getAnbieter() != null ? t.getAnbieter().getName() : ""
+                ))
                 .toList();
     }
 
-    // Optional: Debug/Info (was ist aktiv / nicht aktiv) – kann später weg
+    // optional: Debug endpoint (zeigt, ob überhaupt Kostenstrukturen existieren)
     @GetMapping("/grid")
-    public Map<String, Object> grid(
-            @RequestParam Integer beitrag,
-            @RequestParam Integer laufzeit
-    ) {
-        var ks = kostenstrukturRepository.findByBeitragMonatAndLaufzeitJahreAndAktivTrue(beitrag, laufzeit);
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("beitrag", beitrag);
-        out.put("laufzeit", laufzeit);
-        out.put("count", ks.size());
-        out.put("tarife", ks.stream().map(k -> k.getTarif().getTarifName()).toList());
-        return out;
+    public Object grid(@RequestParam Integer beitrag, @RequestParam Integer laufzeit) {
+        return kostenstrukturRepository.findByBeitragMonatAndLaufzeitJahreAndAktivTrue(beitrag, laufzeit);
     }
 }

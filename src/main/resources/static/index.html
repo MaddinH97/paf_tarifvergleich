@@ -33,6 +33,7 @@
         .tarif-list label { display:block; margin:6px 0; }
 
         .hint { font-size:13px; color:#6b7280; margin-top:8px; }
+        .hint strong { color:#111827; }
 
         .chart-container { margin-top:30px; background:white; padding:15px; border-radius:6px; }
         button { padding:8px 12px; border:none; border-radius:6px; cursor:pointer; }
@@ -68,14 +69,12 @@
                 <input id="einstiegsalter" type="number" value="30" min="0" max="100">
             </div>
 
-            <!-- NEU: Laufzeit statt Auszahlungsalter -->
             <div class="form-group">
                 <label for="laufzeitSelect">Laufzeit (Jahre)</label>
                 <select id="laufzeitSelect"></select>
                 <div class="hint">Nur diese Laufzeiten sind erlaubt (15–65 in 5er-Schritten).</div>
             </div>
 
-            <!-- NEU: Beitrag statt freier Sparrate -->
             <div class="form-group">
                 <label for="beitragSelect">Beitrag (€ / Monat)</label>
                 <select id="beitragSelect"></select>
@@ -168,7 +167,7 @@
             opt.textContent = `${v} € / Monat`;
             beitragSelect.appendChild(opt);
         });
-        beitragSelect.value = "50"; // Default
+        beitragSelect.value = "50";
 
         const laufzeitSelect = document.getElementById('laufzeitSelect');
         laufzeitSelect.innerHTML = '';
@@ -178,53 +177,76 @@
             opt.textContent = `${v} Jahre`;
             laufzeitSelect.appendChild(opt);
         });
-        laufzeitSelect.value = "30"; // Default
+        laufzeitSelect.value = "30";
 
         beitragSelect.addEventListener('change', loadTarifeVerfuegbar);
         laufzeitSelect.addEventListener('change', loadTarifeVerfuegbar);
     }
 
     async function loadFonds() {
-        const res = await fetch('/api/fonds');
-        const fonds = await res.json();
+        try {
+            const res = await fetch('/api/fonds');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const fonds = await res.json();
 
-        const select = document.getElementById('fondsSelect');
-        select.innerHTML = '';
+            const select = document.getElementById('fondsSelect');
+            select.innerHTML = '';
 
-        fonds.forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f.id;
-            opt.textContent = `${f.name} (${f.isin})`;
-            select.appendChild(opt);
-        });
+            fonds.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.id;
+                opt.textContent = `${f.name} (${f.isin})`;
+                select.appendChild(opt);
+            });
+        } catch (e) {
+            console.error("Fehler beim Laden der Fonds:", e);
+            const select = document.getElementById('fondsSelect');
+            select.innerHTML = `<option>Fehler beim Laden</option>`;
+        }
     }
 
     async function loadTarifeVerfuegbar() {
         const beitrag = getSelectedBeitrag();
         const laufzeit = getSelectedLaufzeit();
 
-        const res = await fetch(`/api/tarife/verfuegbar?beitrag=${beitrag}&laufzeit=${laufzeit}`);
-        const tarife = await res.json();
-
         const list = document.getElementById('tarifList');
-        list.innerHTML = '';
+        const hint = document.getElementById('eligibleHint');
 
-        if (!tarife.length) {
-            list.innerHTML = `<div style="color:#6b7280">Für diese Kombination sind keine Tarife aktiv verfügbar.</div>`;
-            return;
+        list.innerHTML = `<div class="hint">Lade Tarife…</div>`;
+        hint.textContent = '';
+
+        try {
+            const res = await fetch(`/api/tarife/verfuegbar?beitrag=${beitrag}&laufzeit=${laufzeit}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const tarife = await res.json();
+
+            list.innerHTML = '';
+
+            if (!tarife.length) {
+                list.innerHTML = `<div style="color:#6b7280">Für <strong>${beitrag} €</strong> und <strong>${laufzeit} Jahre</strong> sind keine Tarife aktiv verfügbar.</div>`;
+                hint.textContent = '';
+                return;
+            }
+
+            tarife.forEach(t => {
+                const label = document.createElement('label');
+                const anbieter = t.anbieterName ? ` – ${t.anbieterName}` : '';
+                label.innerHTML = `<input type="checkbox" value="${t.id}"> ${t.tarifName} (${t.tarifCode})${anbieter}`;
+                list.appendChild(label);
+            });
+
+            hint.innerHTML = `Verfügbar: <strong>${tarife.length}</strong> Tarif(e) für <strong>${beitrag} €</strong> und <strong>${laufzeit} Jahre</strong>.`;
+
+        } catch (e) {
+            console.error("Fehler beim Laden der Tarife:", e);
+            list.innerHTML = `<div style="color:#b91c1c">Fehler beim Laden der Tarife. Läuft das Backend?</div>`;
+            hint.textContent = '';
         }
-
-        tarife.forEach(t => {
-            const label = document.createElement('label');
-            label.innerHTML = `<input type="checkbox" value="${t.id}"> ${t.tarifName} (${t.tarifCode})`;
-            list.appendChild(label);
-        });
     }
 
     function addTab() { alert("Weitere Reiter kommen später 🙂"); }
     function switchTab(index) { /* Dummy */ }
 
-    // Initial
     initChart();
     initDropdowns();
     loadFonds();
