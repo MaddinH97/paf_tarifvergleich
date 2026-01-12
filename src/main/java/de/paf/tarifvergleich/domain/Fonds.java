@@ -1,5 +1,6 @@
 package de.paf.tarifvergleich.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -26,8 +27,10 @@ public class Fonds {
 
     /**
      * Viele Tarife können denselben Fonds nutzen (n:m).
+     * JSON ignorieren, sonst Zyklen.
      */
     @ManyToMany(mappedBy = "fondsListe")
+    @JsonIgnore
     @ToString.Exclude
     private List<Tarif> tarife;
 }

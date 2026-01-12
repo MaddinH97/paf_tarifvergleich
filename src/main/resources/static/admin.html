@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin – Tarifvergleich</title>
+    <style>
+        body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; background:#fafafa; color:#111; }
+        header{ display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #ddd; background:#fff; position:sticky; top:0; }
+        .btn{ display:inline-block; padding:8px 12px; border:1px solid #333; border-radius:8px; text-decoration:none; color:#111; background:#fff; cursor:pointer; }
+        .btn.primary{ background:#111; color:#fff; border-color:#111; }
+        .btn:disabled{ opacity:.5; cursor:not-allowed; }
+        main{ padding:16px; max-width:1200px; margin:0 auto; }
+        h1{ font-size:20px; margin:0; }
+        .card{ background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:12px; margin:12px 0; }
+        table{ width:100%; border-collapse:collapse; }
+        th, td{ padding:10px; border-bottom:1px solid #eee; text-align:left; vertical-align:top; }
+        th{ font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#444; }
+        .row-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+        .muted{ color:#666; font-size:13px; }
+        .pill{ display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; background:#f7f7f7; margin-right:6px; }
+        .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+        @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
+        pre{ white-space:pre-wrap; word-break:break-word; background:#f6f6f6; padding:10px; border-radius:8px; border:1px solid #eee; }
+    </style>
+</head>
+<body>
+<header>
+    <div>
+        <h1>Admin</h1>
+        <div class="muted">Tarife / Fonds / Anbieter einsehen und später pflegen</div>
+    </div>
+    <div class="row-actions">
+        <a class="btn" href="/index.html">Zurück</a>
+        <button class="btn primary" id="btnNewTarif" disabled>+ Neuer Tarif (kommt als Nächstes)</button>
+    </div>
+</header>
+
+<main>
+    <div class="grid">
+        <section class="card">
+            <h2 style="margin:0 0 8px 0; font-size:16px;">Tarife</h2>
+            <div class="muted" id="tarifCount">lädt…</div>
+            <div style="overflow:auto; margin-top:8px;">
+                <table id="tarifTable">
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Tarif</th>
+                        <th>Anbieter</th>
+                        <th>Garantiezins</th>
+                        <th>Laufzeit</th>
+                        <th>Rentenfaktor</th>
+                        <th>Fonds</th>
+                        <th>Aktionen</th>
+                    </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2 style="margin:0 0 8px 0; font-size:16px;">Fonds</h2>
+            <div class="muted" id="fondsCount">lädt…</div>
+            <div style="overflow:auto; margin-top:8px;">
+                <table id="fondsTable">
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>ISIN</th>
+                        <th>Typ</th>
+                        <th>Risiko</th>
+                        <th>Rendite p.a.</th>
+                    </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <section class="card">
+        <h2 style="margin:0 0 8px 0; font-size:16px;">Debug (API Response)</h2>
+        <div class="muted">Hilft beim Entwickeln – kann später entfernt werden</div>
+        <pre id="debugOut">lädt…</pre>
+    </section>
+</main>
+
+<script>
+    async function getJson(url){
+        const res = await fetch(url);
+        if(!res.ok) throw new Error(url + " -> " + res.status);
+        return await res.json();
+    }
+
+    function td(text){
+        const el = document.createElement('td');
+        el.textContent = text ?? '';
+        return el;
+    }
+
+    function fmt(n){
+        if(n === null || n === undefined) return '';
+        return String(n);
+    }
+
+    function renderTarife(tarife){
+        document.getElementById('tarifCount').textContent = `${tarife.length} Tarif(e)`;
+        const tbody = document.querySelector('#tarifTable tbody');
+        tbody.innerHTML = '';
+
+        for(const t of tarife){
+            const tr = document.createElement('tr');
+            tr.appendChild(td(t.id));
+            tr.appendChild(td(`${t.tarifName} (${t.tarifCode})`));
+            tr.appendChild(td(t.anbieter?.name ?? ''));
+            tr.appendChild(td(fmt(t.garantiezins)));
+            tr.appendChild(td(fmt(t.laufzeitJahre)));
+            tr.appendChild(td(fmt(t.rentenfaktor)));
+
+            const fondsTd = document.createElement('td');
+            (t.fondsListe ?? []).forEach(f => {
+                const pill = document.createElement('span');
+                pill.className = 'pill';
+                pill.textContent = f.name;
+                fondsTd.appendChild(pill);
+            });
+            tr.appendChild(fondsTd);
+
+            const actions = document.createElement('td');
+            actions.className = 'row-actions';
+
+            const editBtn = document.createElement('button');
+            editBtn.className = 'btn';
+            editBtn.textContent = 'Bearbeiten';
+            editBtn.onclick = () => alert('Bearbeiten kommt als Nächstes (PUT /api/tarife/{id})');
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn';
+            delBtn.textContent = 'Löschen';
+            delBtn.onclick = () => alert('Löschen kommt als Nächstes (DELETE /api/tarife/{id})');
+
+            actions.appendChild(editBtn);
+            actions.appendChild(delBtn);
+            tr.appendChild(actions);
+
+            tbody.appendChild(tr);
+        }
+    }
+
+    function renderFonds(fonds){
+        document.getElementById('fondsCount').textContent = `${fonds.length} Fonds`;
+        const tbody = document.querySelector('#fondsTable tbody');
+        tbody.innerHTML = '';
+        for(const f of fonds){
+            const tr = document.createElement('tr');
+            tr.appendChild(td(f.id));
+            tr.appendChild(td(f.name));
+            tr.appendChild(td(f.isin));
+            tr.appendChild(td(f.typ));
+            tr.appendChild(td(f.risikoklasse));
+            tr.appendChild(td(fmt(f.erwarteteRenditePa)));
+            tbody.appendChild(tr);
+        }
+    }
+
+    async function init(){
+        try{
+            const [tarife, fonds] = await Promise.all([
+                getJson('/api/tarife'),
+                getJson('/api/fonds')
+            ]);
+
+            renderTarife(tarife);
+            renderFonds(fonds);
+            document.getElementById('debugOut').textContent =
+                JSON.stringify({tarife, fonds}, null, 2);
+        }catch(e){
+            document.getElementById('debugOut').textContent = 'Fehler: ' + e.message;
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>

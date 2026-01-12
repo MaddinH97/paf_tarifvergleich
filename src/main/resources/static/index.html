@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Tarifvergleich Altersvorsorge</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f4f6f8; }
+        .topbar { background:#111827; color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
+        .brand { font-size:18px; font-weight:700; }
+        .actions .btn { background:#2563eb; color:#fff; text-decoration:none; padding:8px 12px; border-radius:6px; font-size:14px; }
+
+        header.sub { background:#1f2937; color:white; padding:10px 20px; font-size:16px; }
+
+        .tabs { display:flex; background:#e5e7eb; padding:5px; }
+        .tab { padding:8px 12px; margin-right:5px; background:#d1d5db; border-radius:4px; cursor:pointer; display:flex; align-items:center; gap:6px; }
+        .tab.active { background:white; font-weight:bold; }
+        .tab button { border:none; background:transparent; cursor:pointer; color:red; font-weight:bold; }
+        .add-tab { padding:8px 12px; cursor:pointer; background:#2563eb; color:white; border-radius:4px; font-weight:bold; }
+
+        .content { padding:20px; }
+        .grid { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
+        .box { background:white; padding:15px; border-radius:6px; }
+        .box h3 { margin-top:0; }
+
+        .form-group { margin-bottom:10px; }
+        label { display:block; font-size:14px; margin-bottom:4px; }
+
+        input, select { width:100%; padding:6px; box-sizing:border-box; }
+
+        .tarif-list label { display:block; margin:6px 0; }
+
+        .hint { font-size:13px; color:#6b7280; margin-top:8px; }
+
+        .chart-container { margin-top:30px; background:white; padding:15px; border-radius:6px; }
+        button { padding:8px 12px; border:none; border-radius:6px; cursor:pointer; }
+        .btn-secondary { background:#e5e7eb; }
+    </style>
+</head>
+
+<body>
+
+<header class="topbar">
+    <div class="brand">Tarifvergleich</div>
+    <div class="actions">
+        <a class="btn" href="/admin.html">Admin</a>
+    </div>
+</header>
+
+<header class="sub">
+    Tarifvergleich – Altersvorsorge
+</header>
+
+<div class="tabs" id="tabs">
+    <div class="tab active" onclick="switchTab(0)">Berechnung 1</div>
+    <div class="add-tab" onclick="addTab()">+</div>
+</div>
+
+<div class="content" id="content">
+    <div class="grid">
+        <div class="box">
+            <h3>Parameter</h3>
+
+            <div class="form-group">
+                <label for="einstiegsalter">Einstiegsalter</label>
+                <input id="einstiegsalter" type="number" value="30" min="0" max="100">
+            </div>
+
+            <!-- NEU: Laufzeit statt Auszahlungsalter -->
+            <div class="form-group">
+                <label for="laufzeitSelect">Laufzeit (Jahre)</label>
+                <select id="laufzeitSelect"></select>
+                <div class="hint">Nur diese Laufzeiten sind erlaubt (15–65 in 5er-Schritten).</div>
+            </div>
+
+            <!-- NEU: Beitrag statt freier Sparrate -->
+            <div class="form-group">
+                <label for="beitragSelect">Beitrag (€ / Monat)</label>
+                <select id="beitragSelect"></select>
+                <div class="hint">Nur diese Beiträge sind erlaubt (25–200 in 25er-Schritten).</div>
+            </div>
+
+            <div class="form-group">
+                <label for="fondswechsel1">Fondswechsel 1 (Jahr)</label>
+                <input id="fondswechsel1" type="number" placeholder="z.B. 10">
+            </div>
+
+            <div class="form-group">
+                <label for="fondswechsel2">Fondswechsel 2 (Jahr)</label>
+                <input id="fondswechsel2" type="number" placeholder="z.B. 20">
+            </div>
+
+            <div class="form-group">
+                <label for="steuersatzRente">Steuersatz Rente (%)</label>
+                <input id="steuersatzRente" type="number" placeholder="z.B. 20">
+            </div>
+
+            <div class="form-group">
+                <label for="fondsSelect">Fondsauswahl</label>
+                <select id="fondsSelect">
+                    <option>Dummy Fonds</option>
+                </select>
+            </div>
+
+            <div class="hint">Tarife werden rechts automatisch anhand Beitrag+Laufzeit gefiltert.</div>
+        </div>
+
+        <div class="box">
+            <h3>Tarife auswählen</h3>
+
+            <button class="btn-secondary" onclick="selectAllTarife()">Alle auswählen</button>
+
+            <div class="tarif-list" id="tarifList">
+                <div class="hint">Lade Tarife…</div>
+            </div>
+
+            <div class="hint" id="eligibleHint"></div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="chart"></canvas>
+    </div>
+</div>
+
+<script>
+    let chart;
+
+    const BEITRAG_WERTE = [25, 50, 75, 100, 125, 150, 175, 200];
+    const LAUFZEIT_WERTE = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
+
+    function initChart() {
+        const ctx = document.getElementById('chart');
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['0', '5', '10', '15', '20', '25', '30'],
+                datasets: [{
+                    label: 'Wertentwicklung (Dummy)',
+                    data: [0, 5000, 12000, 20000, 30000, 45000, 60000],
+                    borderColor: 'blue',
+                    fill: false
+                }]
+            }
+        });
+    }
+
+    function selectAllTarife() {
+        document.querySelectorAll('#tarifList input').forEach(cb => cb.checked = true);
+    }
+
+    function getSelectedBeitrag() {
+        return parseInt(document.getElementById('beitragSelect').value, 10);
+    }
+
+    function getSelectedLaufzeit() {
+        return parseInt(document.getElementById('laufzeitSelect').value, 10);
+    }
+
+    function initDropdowns() {
+        const beitragSelect = document.getElementById('beitragSelect');
+        beitragSelect.innerHTML = '';
+        BEITRAG_WERTE.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = `${v} € / Monat`;
+            beitragSelect.appendChild(opt);
+        });
+        beitragSelect.value = "50"; // Default
+
+        const laufzeitSelect = document.getElementById('laufzeitSelect');
+        laufzeitSelect.innerHTML = '';
+        LAUFZEIT_WERTE.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = `${v} Jahre`;
+            laufzeitSelect.appendChild(opt);
+        });
+        laufzeitSelect.value = "30"; // Default
+
+        beitragSelect.addEventListener('change', loadTarifeVerfuegbar);
+        laufzeitSelect.addEventListener('change', loadTarifeVerfuegbar);
+    }
+
+    async function loadFonds() {
+        const res = await fetch('/api/fonds');
+        const fonds = await res.json();
+
+        const select = document.getElementById('fondsSelect');
+        select.innerHTML = '';
+
+        fonds.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.id;
+            opt.textContent = `${f.name} (${f.isin})`;
+            select.appendChild(opt);
+        });
+    }
+
+    async function loadTarifeVerfuegbar() {
+        const beitrag = getSelectedBeitrag();
+        const laufzeit = getSelectedLaufzeit();
+
+        const res = await fetch(`/api/tarife/verfuegbar?beitrag=${beitrag}&laufzeit=${laufzeit}`);
+        const tarife = await res.json();
+
+        const list = document.getElementById('tarifList');
+        list.innerHTML = '';
+
+        if (!tarife.length) {
+            list.innerHTML = `<div style="color:#6b7280">Für diese Kombination sind keine Tarife aktiv verfügbar.</div>`;
+            return;
+        }
+
+        tarife.forEach(t => {
+            const label = document.createElement('label');
+            label.innerHTML = `<input type="checkbox" value="${t.id}"> ${t.tarifName} (${t.tarifCode})`;
+            list.appendChild(label);
+        });
+    }
+
+    function addTab() { alert("Weitere Reiter kommen später 🙂"); }
+    function switchTab(index) { /* Dummy */ }
+
+    // Initial
+    initChart();
+    initDropdowns();
+    loadFonds();
+    loadTarifeVerfuegbar();
+</script>
+
+</body>
+</html>
