@@ -2,11 +2,15 @@ package de.paf.tarifvergleich.config;
 
 import de.paf.tarifvergleich.domain.*;
 import de.paf.tarifvergleich.repository.*;
+import de.paf.tarifvergleich.service.kapitalanlage.KapitalanlageFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -17,12 +21,32 @@ public class DataLoader implements CommandLineRunner {
     private final TarifRepository tarifRepository;
     private final FinanzdienstleistungsunternehmenRepository unternehmenRepository;
     private final KostenstrukturRepository kostenstrukturRepository;
+    private final KapitalanlageRepository kapitalanlageRepository;
+
+    // optional (wenn du Kostenpunkte bereits nutzt)
+    private final KostenpunktRepository kostenpunktRepository;
+
+    private static final int MONTHS_65Y = 65 * 12;
 
     @Override
     public void run(String... args) {
-        if (tarifRepository.count() > 0 || fondsRepository.count() > 0) return;
 
-        // Anbieter
+        // WICHTIG: wir brechen nur ab, wenn wirklich schon Daten da sind
+        // (sonst erzeugen wir doppelt Einträge und laufen in Unique Constraints)
+        if (tarifRepository.count() > 0
+                || fondsRepository.count() > 0
+                || kapitalanlageRepository.count() > 0
+                || kostenstrukturRepository.count() > 0) {
+            return;
+        }
+
+        // ===== Kapitalanlagen =====
+        saveKapitalanlageIfMissing(KapitalanlageFactory.createFixed("3% Rendite", new BigDecimal("0.03")));
+        saveKapitalanlageIfMissing(KapitalanlageFactory.createFixed("6% Rendite", new BigDecimal("0.06")));
+        saveKapitalanlageIfMissing(KapitalanlageFactory.createFixed("9% Rendite", new BigDecimal("0.09")));
+        saveKapitalanlageIfMissing(KapitalanlageFactory.createFantasyMsciWorldLike()); // ~9% p.a. über 40 Jahre
+
+        // ===== Anbieter =====
         var anbieterA = unternehmenRepository.save(
                 Finanzdienstleistungsunternehmen.builder().name("Anbieter A").build()
         );
@@ -30,7 +54,7 @@ public class DataLoader implements CommandLineRunner {
                 Finanzdienstleistungsunternehmen.builder().name("Anbieter B").build()
         );
 
-        // Fonds
+        // ===== Fonds (dein Stand) =====
         var f1 = fondsRepository.save(Fonds.builder()
                 .isin("DE000F000001")
                 .name("Global Growth")
@@ -63,183 +87,185 @@ public class DataLoader implements CommandLineRunner {
                 .erwarteteRenditePa(new BigDecimal("0.03"))
                 .build());
 
-        // =========================
-        // Scripts (GraalJS-kompatibel)
-        // =========================
-
-        // Tarif Komfort: etwas "teurer", dafür leicht höhere Rendite (Demo)
-        String scriptKomfort = """
-                function calc(input) {
-                  const beitrag = input.beitrag;      // int (z.B. 50)
-                  const laufzeit = input.laufzeit;    // int (z.B. 30)
-                  const kosten  = input.kosten || {};
-                
-                  // simple Demo-Parameter:
-                  // - Rendite p.a. (hier fix, später abhängig von Fonds etc.)
-                  const renditePa = 0.035; // 3.5% p.a.
-                
-                  let kapital = 0;
-                  const punkte = [{ jahr: 0, wert: 0 }];
-                
-                  // Abschlusskosten einmalig am Anfang (Demo):
-                  kapital -= (kosten.abschlusskosten || 0);
-                
-                  for (let j = 1; j <= laufzeit; j++) {
-                    // jährliche Einzahlung
-                    kapital += beitrag * 12;
-                
-                    // Verwaltungskosten & Sonstige: wir interpretieren sie hier als "Euro pro Monat" (Demo)
-                    const vk = (kosten.verwaltungskosten || 0) * 12;
-                    const sk = (kosten.sonstigeKosten || 0) * 12;
-                    kapital -= (vk + sk);
-                
-                    // Fondskosten/Risikokosten: wir interpretieren sie als "Prozent p.a." in Dezimalform (Demo)
-                    const fondProzent = (kosten.fondskosten || 0);   // z.B. 0.012
-                    const risikoProzent = (kosten.risikokosten || 0); // z.B. 0.005
-                
-                    // Rendite nach Kosten
-                    const nettoRendite = renditePa - fondProzent - risikoProzent;
-                    kapital *= (1 + nettoRendite);
-                
-                    punkte.push({ jahr: j, wert: kapital });
-                  }
-                
-                  return { endwert: kapital, punkte: punkte };
-                }
-                """;
-
-        // Tarif Flex: Mindestbeitrag 50, etwas niedrigere Rendite (Demo)
-        String scriptFlex = """
-                function calc(input) {
-                  const beitrag = input.beitrag;
-                  const laufzeit = input.laufzeit;
-                  const kosten  = input.kosten || {};
-                
-                  const renditePa = 0.028; // 2.8% p.a.
-                
-                  let kapital = 0;
-                  const punkte = [{ jahr: 0, wert: 0 }];
-                
-                  // Abschlusskosten einmalig am Anfang (Demo)
-                  kapital -= (kosten.abschlusskosten || 0);
-                
-                  for (let j = 1; j <= laufzeit; j++) {
-                    kapital += beitrag * 12;
-                
-                    // etwas andere Interpretation (Demo): Verwaltungskosten als Euro/Jahr
-                    const vkJahr = (kosten.verwaltungskosten || 0) * 12;
-                    kapital -= vkJahr;
-                
-                    // Fondskosten/Risikokosten als Prozent p.a.
-                    const fondProzent = (kosten.fondskosten || 0);
-                    const risikoProzent = (kosten.risikokosten || 0);
-                
-                    const nettoRendite = renditePa - fondProzent - risikoProzent;
-                    kapital *= (1 + nettoRendite);
-                
-                    punkte.push({ jahr: j, wert: kapital });
-                  }
-                
-                  return { endwert: kapital, punkte: punkte };
-                }
-                """;
-
-        // =========================
-        // Tarife speichern
-        // =========================
-
-        var tarifKomfort = tarifRepository.save(
+        // ===== Tarife =====
+        // 1) Reine Fondspolice (nur Topf A)
+        var tarifFonds = tarifRepository.save(
                 Tarif.builder()
-                        .tarifName("Tarif Komfort")
-                        .tarifCode("A-KOMFORT")
+                        .tarifName("Tarif FondsPur")
+                        .tarifCode("F-FONDS")
                         .erscheinungsjahr(2020)
-                        .garantiezins(new BigDecimal("0.0125"))
+                        .tarifTyp(TarifTyp.FONDS)
+                        .garantiezins(new BigDecimal("0.00")) // irrelevant
+                        .garantieModus(GarantieModus.OHNE_UEBERSCHUESSE)
+                        .minStartalter(18)
+                        .maxEndalter(67)
+                        .mindestbeitragMonat(new BigDecimal("25"))
+                        .aktiv(true)
+                        .anbieter(anbieterA)
+                        .fondsListe(List.of(f1, f3))
+                        .berechnungsScript("""
+                                // später Script: hier nur Platzhalter
+                                return beitrag;
+                                """)
+                        .build()
+        );
+
+        // 2) 2-Topf Hybrid (A + B)
+        var tarifHybrid2AB = tarifRepository.save(
+                Tarif.builder()
+                        .tarifName("Tarif Hybrid 2-Topf (A/B)")
+                        .tarifCode("H2-AB")
+                        .erscheinungsjahr(2021)
+                        .tarifTyp(TarifTyp.HYBRID_2_TOPF)
+                        .zweiterTopfTyp(TopfTyp.B)
+                        .garantiezins(new BigDecimal("0.00")) // irrelevant (weil zweiter Topf=B)
+                        .garantieModus(GarantieModus.OHNE_UEBERSCHUESSE)
+                        .minStartalter(18)
+                        .maxEndalter(67)
+                        .mindestbeitragMonat(new BigDecimal("50"))
+                        .aktiv(true)
+                        .anbieter(anbieterB)
+                        .fondsListe(List.of(f1, f2))
+                        .berechnungsScript("""
+                                // später Script: Platzhalter
+                                return beitrag;
+                                """)
+                        .build()
+        );
+
+        // 3) 2-Topf Hybrid (A + Garantie)
+        var tarifHybrid2AG = tarifRepository.save(
+                Tarif.builder()
+                        .tarifName("Tarif Hybrid 2-Topf (A/Garantie)")
+                        .tarifCode("H2-AG")
+                        .erscheinungsjahr(2022)
+                        .tarifTyp(TarifTyp.HYBRID_2_TOPF)
+                        .zweiterTopfTyp(TopfTyp.GARANTIE)
+                        .garantiezins(new BigDecimal("0.0125")) // 1.25% p.a.
+                        .garantieModus(GarantieModus.MIT_UEBERSCHUESSEN)
                         .minStartalter(18)
                         .maxEndalter(67)
                         .mindestbeitragMonat(new BigDecimal("25"))
                         .aktiv(true)
                         .anbieter(anbieterA)
                         .fondsListe(List.of(f1, f3, f4))
-                        .berechnungsScript(scriptKomfort)
+                        .berechnungsScript("""
+                                // später Script: Platzhalter
+                                return beitrag;
+                                """)
                         .build()
         );
 
-        var tarifFlex = tarifRepository.save(
+        // 4) 3-Topf Hybrid (A + B + Garantie)
+        var tarifHybrid3 = tarifRepository.save(
                 Tarif.builder()
-                        .tarifName("Tarif Flex")
-                        .tarifCode("B-FLEX")
-                        .erscheinungsjahr(2021)
-                        .garantiezins(new BigDecimal("0.0100"))
+                        .tarifName("Tarif Hybrid 3-Topf (A/B/Garantie)")
+                        .tarifCode("H3-ABG")
+                        .erscheinungsjahr(2023)
+                        .tarifTyp(TarifTyp.HYBRID_3_TOPF)
+                        .garantiezins(new BigDecimal("0.0100")) // 1.00% p.a.
+                        .garantieModus(GarantieModus.OHNE_UEBERSCHUESSE)
                         .minStartalter(18)
                         .maxEndalter(67)
-                        .mindestbeitragMonat(new BigDecimal("50")) // Mindestbeitrag 50
+                        .mindestbeitragMonat(new BigDecimal("25"))
                         .aktiv(true)
                         .anbieter(anbieterB)
-                        .fondsListe(List.of(f1, f2))
-                        .berechnungsScript(scriptFlex)
+                        .fondsListe(List.of(f1, f2, f3))
+                        .berechnungsScript("""
+                                // später Script: Platzhalter
+                                return beitrag;
+                                """)
                         .build()
         );
 
-        // =========================
-        // Kostenstrukturen (Grid)
-        // =========================
-        kostenstrukturRepository.saveAll(List.of(
-                // Komfort: 25/30
-                Kostenstruktur.builder()
-                        .tarif(tarifKomfort)
-                        .beitragMonat(25)
-                        .laufzeitJahre(30)
-                        .aktiv(true)
-                        // abschlusskosten als EURO einmalig (Demo)
-                        .abschlusskosten(new BigDecimal("500"))
-                        // verwaltungskosten als EURO/Monat (Demo)
-                        .verwaltungskosten(new BigDecimal("2.50"))
-                        // fondskosten als PROZENT p.a. in Dezimalform (Demo) -> 1.20% = 0.0120
-                        .fondskosten(new BigDecimal("0.0120"))
-                        // risikokosten als PROZENT p.a. -> 0.50% = 0.0050
-                        .risikokosten(new BigDecimal("0.0050"))
-                        .sonstigeKosten(BigDecimal.ZERO)
-                        .build(),
+        // ===== Kostenstrukturen (minimal, damit UI-Verfügbar-Filter sinnvoll ist) =====
+        // Wir legen für Beitrag=50 und Laufzeit=30 für alle Tarife eine aktive Kombi an
+        // (bei Mindestbeitrag 50 ist 25 nicht nötig)
 
-                // Komfort: 50/30
-                Kostenstruktur.builder()
-                        .tarif(tarifKomfort)
-                        .beitragMonat(50)
-                        .laufzeitJahre(30)
-                        .aktiv(true)
-                        .abschlusskosten(new BigDecimal("450"))
-                        .verwaltungskosten(new BigDecimal("2.30"))
-                        .fondskosten(new BigDecimal("0.0110"))
-                        .risikokosten(new BigDecimal("0.0045"))
-                        .sonstigeKosten(BigDecimal.ZERO)
-                        .build(),
+        createKs(tarifFonds, 25, 30, true);
+        createKs(tarifFonds, 50, 30, true);
 
-                // Flex: Mindestbeitrag 50 -> 25 absichtlich nicht vorhanden
-                // Flex: 50/30
-                Kostenstruktur.builder()
-                        .tarif(tarifFlex)
-                        .beitragMonat(50)
-                        .laufzeitJahre(30)
-                        .aktiv(true)
-                        .abschlusskosten(new BigDecimal("300"))
-                        .verwaltungskosten(new BigDecimal("2.00"))
-                        .fondskosten(new BigDecimal("0.0100"))
-                        .risikokosten(new BigDecimal("0.0030"))
-                        .sonstigeKosten(BigDecimal.ZERO)
-                        .build(),
+        createKs(tarifHybrid2AB, 50, 30, true);
+        createKs(tarifHybrid2AB, 100, 35, true);
 
-                // Flex: 100/35
+        createKs(tarifHybrid2AG, 25, 30, true);
+        createKs(tarifHybrid2AG, 50, 30, true);
+
+        createKs(tarifHybrid3, 25, 30, true);
+        createKs(tarifHybrid3, 50, 30, true);
+
+        // Optional: Beispiel-Kostenpunkte für eine der Kostenstrukturen (nur wenn du Kostenpunkte bereits nutzt)
+        // Wenn du es noch nicht nutzt, kannst du diesen Block löschen.
+        if (kostenpunktRepository != null) {
+            var ks = kostenstrukturRepository.findFirstByTarif_IdAndBeitragMonatAndLaufzeitJahreAndAktivTrue(
+                    tarifFonds.getId(), 50, 30
+            ).orElse(null);
+
+            if (ks != null && kostenpunktRepository.count() == 0) {
+                kostenpunktRepository.saveAll(List.of(
+                        Kostenpunkt.builder()
+                                .kostenstruktur(ks)
+                                .code("ABSCHLUSS_5J")
+                                .typ(KostenTyp.EURO)
+                                .basis(KostenBasis.FIX)
+                                .rhythmus(KostenRhythmus.VERTEILT_5_JAHRE)
+                                .wert(new BigDecimal("600.00"))
+                                .aktiv(true)
+                                .build(),
+                        Kostenpunkt.builder()
+                                .kostenstruktur(ks)
+                                .code("FIX_STUFE1")
+                                .typ(KostenTyp.EURO)
+                                .basis(KostenBasis.FIX)
+                                .rhythmus(KostenRhythmus.MONATLICH)
+                                .wert(new BigDecimal("2.00"))
+                                .gueltigVonMonat(1)
+                                .gueltigBisMonat(120)
+                                .aktiv(true)
+                                .build(),
+                        Kostenpunkt.builder()
+                                .kostenstruktur(ks)
+                                .code("GUTHABEN_PCT")
+                                .typ(KostenTyp.PROZENT)
+                                .basis(KostenBasis.KAPITAL)
+                                .rhythmus(KostenRhythmus.MONATLICH)
+                                .wert(new BigDecimal("0.60")) // 0.60% p.a. (wenn du ProzentPeriode=JAHRLICH nutzt)
+                                .prozentPeriode(ProzentPeriode.JAHRLICH)
+                                .minimumEuro(new BigDecimal("0.50"))
+                                .aktiv(true)
+                                .build()
+                ));
+            }
+        }
+    }
+
+    private void createKs(Tarif tarif, int beitrag, int laufzeit, boolean aktiv) {
+        kostenstrukturRepository.save(
                 Kostenstruktur.builder()
-                        .tarif(tarifFlex)
-                        .beitragMonat(100)
-                        .laufzeitJahre(35)
-                        .aktiv(true)
-                        .abschlusskosten(new BigDecimal("280"))
-                        .verwaltungskosten(new BigDecimal("1.90"))
-                        .fondskosten(new BigDecimal("0.0095"))
-                        .risikokosten(new BigDecimal("0.0028"))
+                        .tarif(tarif)
+                        .beitragMonat(beitrag)
+                        .laufzeitJahre(laufzeit)
+                        .aktiv(aktiv)
+                        // alte Felder bleiben (können später entfernt werden)
+                        .abschlusskosten(BigDecimal.ZERO)
+                        .verwaltungskosten(BigDecimal.ZERO)
+                        .fondskosten(BigDecimal.ZERO)
+                        .risikokosten(BigDecimal.ZERO)
                         .sonstigeKosten(BigDecimal.ZERO)
                         .build()
-        ));
+        );
+    }
+
+    private void saveKapitalanlageIfMissing(Kapitalanlage k) {
+        kapitalanlageRepository.findByName(k.getName())
+                .orElseGet(() -> kapitalanlageRepository.save(k));
+    }
+
+    // Falls du die monthlyRateFromAnnual später wieder brauchst
+    @SuppressWarnings("unused")
+    private BigDecimal monthlyRateFromAnnual(BigDecimal annualRate) {
+        double rY = annualRate.doubleValue();
+        double rM = Math.pow(1.0 + rY, 1.0 / 12.0) - 1.0;
+        return new BigDecimal(rM, new MathContext(20, RoundingMode.HALF_UP));
     }
 }

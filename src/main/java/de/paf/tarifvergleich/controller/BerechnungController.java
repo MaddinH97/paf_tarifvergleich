@@ -13,14 +13,17 @@ import java.util.List;
 @RequiredArgsConstructor
 public class BerechnungController {
 
-    private final BerechnungsService berechnungService;
+    private final BerechnungsService berechnungsService;
 
     @PostMapping
     public List<BerechnungErgebnisDto> berechne(@RequestBody BerechnungRequestDto req) {
-        return berechnungService.berechne(
+        return berechnungsService.berechne(
                 req.beitragMonat(),
                 req.laufzeitJahre(),
                 req.einstiegsalter(),
+                req.kapitalanlageAId(),
+                req.kapitalanlageBId(),
+                req.garantieModus(),
                 req.tarifIds()
         );
     }

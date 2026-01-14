@@ -8,6 +8,7 @@ public record BerechnungErgebnisDto(
         String tarifName,
         String tarifCode,
         String anbieterName,
+
         BigDecimal endwert,
         List<WertpunktDto> wertentwicklung
 ) {}

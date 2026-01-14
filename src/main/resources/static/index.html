@@ -10,7 +10,8 @@
         body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f4f6f8; }
         .topbar { background:#111827; color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
         .brand { font-size:18px; font-weight:700; }
-        .actions .btn { background:#2563eb; color:#fff; text-decoration:none; padding:8px 12px; border-radius:6px; font-size:14px; }
+        .actions { display:flex; gap:10px; align-items:center; }
+        .actions .btn { background:#2563eb; color:#fff; text-decoration:none; padding:8px 12px; border-radius:6px; font-size:14px; display:inline-block; }
 
         header.sub { background:#1f2937; color:white; padding:10px 20px; font-size:16px; }
 
@@ -33,11 +34,15 @@
         .tarif-list label { display:block; margin:6px 0; }
 
         .hint { font-size:13px; color:#6b7280; margin-top:8px; }
-        .hint strong { color:#111827; }
 
         .chart-container { margin-top:30px; background:white; padding:15px; border-radius:6px; }
         button { padding:8px 12px; border:none; border-radius:6px; cursor:pointer; }
         .btn-secondary { background:#e5e7eb; }
+        .btn-primary { background:#2563eb; color:#fff; }
+        .row { display:flex; gap:10px; }
+        .row > * { flex:1; }
+        .error { color:#b91c1c; margin-top:8px; font-size:13px; }
+        .success { color:#065f46; margin-top:8px; font-size:13px; }
     </style>
 </head>
 
@@ -69,16 +74,27 @@
                 <input id="einstiegsalter" type="number" value="30" min="0" max="100">
             </div>
 
-            <div class="form-group">
-                <label for="laufzeitSelect">Laufzeit (Jahre)</label>
-                <select id="laufzeitSelect"></select>
-                <div class="hint">Nur diese Laufzeiten sind erlaubt (15–65 in 5er-Schritten).</div>
+            <div class="row">
+                <div class="form-group">
+                    <label for="laufzeitSelect">Laufzeit (Jahre)</label>
+                    <select id="laufzeitSelect"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="beitragSelect">Beitrag (€ / Monat)</label>
+                    <select id="beitragSelect"></select>
+                </div>
             </div>
 
-            <div class="form-group">
-                <label for="beitragSelect">Beitrag (€ / Monat)</label>
-                <select id="beitragSelect"></select>
-                <div class="hint">Nur diese Beiträge sind erlaubt (25–200 in 25er-Schritten).</div>
+            <div class="row">
+                <div class="form-group">
+                    <label for="kapASelect">Kapitalanlage A</label>
+                    <select id="kapASelect"></select>
+                </div>
+                <div class="form-group">
+                    <label for="kapBSelect">Kapitalanlage B</label>
+                    <select id="kapBSelect"></select>
+                </div>
             </div>
 
             <div class="form-group">
@@ -96,14 +112,13 @@
                 <input id="steuersatzRente" type="number" placeholder="z.B. 20">
             </div>
 
-            <div class="form-group">
-                <label for="fondsSelect">Fondsauswahl</label>
-                <select id="fondsSelect">
-                    <option>Dummy Fonds</option>
-                </select>
-            </div>
-
             <div class="hint">Tarife werden rechts automatisch anhand Beitrag+Laufzeit gefiltert.</div>
+
+            <div style="margin-top:12px;">
+                <button class="btn-primary" onclick="berechnen()">Berechnen</button>
+                <div id="status" class="hint"></div>
+                <div id="error" class="error"></div>
+            </div>
         </div>
 
         <div class="box">
@@ -135,27 +150,52 @@
         chart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: ['0', '5', '10', '15', '20', '25', '30'],
-                datasets: [{
-                    label: 'Wertentwicklung (Dummy)',
-                    data: [0, 5000, 12000, 20000, 30000, 45000, 60000],
-                    borderColor: 'blue',
-                    fill: false
-                }]
+                labels: [],
+                datasets: []
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: true }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Jahre' } },
+                    y: { title: { display: true, text: 'Wert (€)' } }
+                }
             }
         });
     }
 
+    function setStatus(msg) {
+        document.getElementById('status').textContent = msg || '';
+    }
+    function setError(msg) {
+        document.getElementById('error').textContent = msg || '';
+    }
+
     function selectAllTarife() {
-        document.querySelectorAll('#tarifList input').forEach(cb => cb.checked = true);
+        document.querySelectorAll('#tarifList input[type="checkbox"]').forEach(cb => cb.checked = true);
     }
 
     function getSelectedBeitrag() {
         return parseInt(document.getElementById('beitragSelect').value, 10);
     }
-
     function getSelectedLaufzeit() {
         return parseInt(document.getElementById('laufzeitSelect').value, 10);
+    }
+    function getEinstiegsalter() {
+        return parseInt(document.getElementById('einstiegsalter').value, 10);
+    }
+    function getKapAId() {
+        return parseInt(document.getElementById('kapASelect').value, 10);
+    }
+    function getKapBId() {
+        return parseInt(document.getElementById('kapBSelect').value, 10);
+    }
+
+    function getSelectedTarifIds() {
+        return Array.from(document.querySelectorAll('#tarifList input[type="checkbox"]:checked'))
+            .map(cb => parseInt(cb.value, 10));
     }
 
     function initDropdowns() {
@@ -183,73 +223,141 @@
         laufzeitSelect.addEventListener('change', loadTarifeVerfuegbar);
     }
 
-    async function loadFonds() {
-        try {
-            const res = await fetch('/api/fonds');
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const fonds = await res.json();
+    async function loadKapitalanlagen() {
+        const res = await fetch('/api/kapitalanlagen');
+        const anlagen = await res.json();
 
-            const select = document.getElementById('fondsSelect');
-            select.innerHTML = '';
+        const a = document.getElementById('kapASelect');
+        const b = document.getElementById('kapBSelect');
+        a.innerHTML = '';
+        b.innerHTML = '';
 
-            fonds.forEach(f => {
-                const opt = document.createElement('option');
-                opt.value = f.id;
-                opt.textContent = `${f.name} (${f.isin})`;
-                select.appendChild(opt);
-            });
-        } catch (e) {
-            console.error("Fehler beim Laden der Fonds:", e);
-            const select = document.getElementById('fondsSelect');
-            select.innerHTML = `<option>Fehler beim Laden</option>`;
+        anlagen.forEach(k => {
+            const optA = document.createElement('option');
+            optA.value = k.id;
+            optA.textContent = k.name;
+            a.appendChild(optA);
+
+            const optB = document.createElement('option');
+            optB.value = k.id;
+            optB.textContent = k.name;
+            b.appendChild(optB);
+        });
+
+        // Default: 9% falls vorhanden, sonst erste Option
+        const nine = anlagen.find(x => (x.name || '').includes("9%"));
+        if (nine) {
+            a.value = String(nine.id);
+            b.value = String(nine.id);
+        } else if (anlagen.length) {
+            a.value = String(anlagen[0].id);
+            b.value = String(anlagen[0].id);
         }
     }
 
     async function loadTarifeVerfuegbar() {
+        setError('');
         const beitrag = getSelectedBeitrag();
         const laufzeit = getSelectedLaufzeit();
 
-        const list = document.getElementById('tarifList');
-        const hint = document.getElementById('eligibleHint');
+        const res = await fetch(`/api/tarife/verfuegbar?beitrag=${beitrag}&laufzeit=${laufzeit}`);
+        const tarife = await res.json();
 
-        list.innerHTML = `<div class="hint">Lade Tarife…</div>`;
-        hint.textContent = '';
+        const list = document.getElementById('tarifList');
+        list.innerHTML = '';
+
+        if (!tarife.length) {
+            list.innerHTML = `<div style="color:#6b7280">Für diese Kombination sind keine Tarife aktiv verfügbar.</div>`;
+            return;
+        }
+
+        tarife.forEach(t => {
+            const label = document.createElement('label');
+            label.innerHTML = `<input type="checkbox" value="${t.id}"> ${t.tarifName} (${t.tarifCode})`;
+            list.appendChild(label);
+        });
+    }
+
+    async function berechnen() {
+        setError('');
+        setStatus('Berechne…');
+
+        const beitragMonat = getSelectedBeitrag();
+        const laufzeitJahre = getSelectedLaufzeit();
+        const einstiegsalter = getEinstiegsalter();
+        const kapitalanlageAId = getKapAId();
+        const kapitalanlageBId = getKapBId();
+        const tarifIds = getSelectedTarifIds();
+
+        if (!tarifIds.length) {
+            setStatus('');
+            setError('Bitte mindestens einen Tarif auswählen.');
+            return;
+        }
+
+        const payload = {
+            beitragMonat,
+            laufzeitJahre,
+            einstiegsalter,
+            kapitalanlageAId,
+            kapitalanlageBId,
+            tarifIds
+        };
 
         try {
-            const res = await fetch(`/api/tarife/verfuegbar?beitrag=${beitrag}&laufzeit=${laufzeit}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const tarife = await res.json();
-
-            list.innerHTML = '';
-
-            if (!tarife.length) {
-                list.innerHTML = `<div style="color:#6b7280">Für <strong>${beitrag} €</strong> und <strong>${laufzeit} Jahre</strong> sind keine Tarife aktiv verfügbar.</div>`;
-                hint.textContent = '';
-                return;
-            }
-
-            tarife.forEach(t => {
-                const label = document.createElement('label');
-                const anbieter = t.anbieterName ? ` – ${t.anbieterName}` : '';
-                label.innerHTML = `<input type="checkbox" value="${t.id}"> ${t.tarifName} (${t.tarifCode})${anbieter}`;
-                list.appendChild(label);
+            const res = await fetch('/api/berechnung', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
             });
 
-            hint.innerHTML = `Verfügbar: <strong>${tarife.length}</strong> Tarif(e) für <strong>${beitrag} €</strong> und <strong>${laufzeit} Jahre</strong>.`;
+            if (!res.ok) {
+                const txt = await res.text();
+                throw new Error(`HTTP ${res.status}: ${txt}`);
+            }
 
+            const ergebnisse = await res.json();
+            setStatus(`OK: ${ergebnisse.length} Ergebnis(se).`);
+
+            renderChart(ergebnisse, laufzeitJahre);
         } catch (e) {
-            console.error("Fehler beim Laden der Tarife:", e);
-            list.innerHTML = `<div style="color:#b91c1c">Fehler beim Laden der Tarife. Läuft das Backend?</div>`;
-            hint.textContent = '';
+            setStatus('');
+            setError('Fehler bei Berechnung: ' + e.message);
         }
+    }
+
+    function renderChart(ergebnisse, laufzeitJahre) {
+        // Labels: 0..laufzeit
+        const labels = [];
+        for (let y = 0; y <= laufzeitJahre; y++) labels.push(String(y));
+
+        // Datasets pro Tarif
+        const datasets = ergebnisse.map((r, idx) => {
+            const map = new Map();
+            (r.wertentwicklung || []).forEach(p => map.set(String(p.jahr), p.wert));
+
+            const data = labels.map(l => map.has(l) ? map.get(l) : null);
+
+            return {
+                label: `${r.tarifName} (${r.tarifCode})`,
+                data,
+                fill: false,
+                tension: 0.15
+            };
+        });
+
+        chart.data.labels = labels;
+        chart.data.datasets = datasets;
+        chart.update();
     }
 
     function addTab() { alert("Weitere Reiter kommen später 🙂"); }
     function switchTab(index) { /* Dummy */ }
 
+    // Initial
     initChart();
     initDropdowns();
-    loadFonds();
+    loadKapitalanlagen();
     loadTarifeVerfuegbar();
 </script>
 
