@@ -26,10 +26,11 @@ public class BerechnungsService {
     private static final BigDecimal BD_0 = BigDecimal.ZERO;
     private static final BigDecimal BD_1 = BigDecimal.ONE;
     private static final BigDecimal BD_100 = new BigDecimal("100");
+    private static final BigDecimal EPS = new BigDecimal("0.0000000001");
 
     /**
-     * Controller-Signatur (wie bei dir):
-     * beitragMonat, laufzeitJahre, einstiegsalter, kapitalanlageAId, kapitalanlageBId, tarifIds
+     * Controller-Signatur:
+     * beitragMonat, laufzeitJahre, einstiegsalter, kapitalanlageAId, kapitalanlageBId, garantieModus, tarifIds
      */
     public List<BerechnungErgebnisDto> berechne(
             Integer beitragMonat,
@@ -45,8 +46,13 @@ public class BerechnungsService {
 
         int gesamtMonate = laufzeitJahre * 12;
 
-        Kapitalanlage kaA = kapitalanlageAId != null ? kapitalanlageRepository.findById(kapitalanlageAId).orElse(null) : null;
-        Kapitalanlage kaB = kapitalanlageBId != null ? kapitalanlageRepository.findById(kapitalanlageBId).orElse(null) : null;
+        Kapitalanlage kaA = kapitalanlageAId != null
+                ? kapitalanlageRepository.findById(kapitalanlageAId).orElse(null)
+                : null;
+
+        Kapitalanlage kaB = kapitalanlageBId != null
+                ? kapitalanlageRepository.findById(kapitalanlageBId).orElse(null)
+                : null;
 
         BigDecimal beitrag = BigDecimal.valueOf(beitragMonat);
 
@@ -55,6 +61,8 @@ public class BerechnungsService {
         for (Long tarifId : tarifIds) {
             Tarif tarif = tarifRepository.findById(tarifId).orElse(null);
             if (tarif == null) continue;
+
+            // Lombok bei boolean => isAktiv()
             if (!tarif.getAktiv()) continue;
 
             // passende Kostenstruktur (Beitrag/Laufzeit) muss existieren und aktiv sein
@@ -62,6 +70,7 @@ public class BerechnungsService {
                     kostenstrukturRepository.findFirstByTarif_IdAndBeitragMonatAndLaufzeitJahreAndAktivTrue(
                             tarif.getId(), beitragMonat, laufzeitJahre
                     );
+
             if (ksOpt.isEmpty()) continue;
 
             Kostenstruktur ks = ksOpt.get();
@@ -88,7 +97,6 @@ public class BerechnungsService {
             Kapitalanlage kaB
     ) {
         TarifTyp typ = tarif.getTarifTyp();
-
         if (typ == null) typ = TarifTyp.FONDS;
 
         return switch (typ) {
@@ -99,7 +107,7 @@ public class BerechnungsService {
     }
 
     // =========================================================
-    // 1) FONDS (nur Topf A)
+    // 1) FONDS (nur Topf 1)
     // =========================================================
     private BerechnungErgebnisDto simuliereFondspolice(
             Tarif tarif,
@@ -112,11 +120,11 @@ public class BerechnungsService {
     ) {
         BigDecimal topfA = BD_0;
         BigDecimal sumBeitraege = BD_0;
-        BigDecimal sumKosten = BD_0;
 
         List<WertpunktDto> jahreswerte = new ArrayList<>();
 
         for (int m = 1; m <= gesamtMonate; m++) {
+
             // Beitrag rein
             topfA = topfA.add(beitrag);
             sumBeitraege = sumBeitraege.add(beitrag);
@@ -125,7 +133,6 @@ public class BerechnungsService {
             BigDecimal kosten = kostenSummeFuerMonat(kostenpunkte, m, beitrag, topfA);
             if (kosten.compareTo(BD_0) > 0) {
                 topfA = topfA.subtract(kosten);
-                sumKosten = sumKosten.add(kosten);
                 if (topfA.compareTo(BD_0) < 0) topfA = BD_0;
             }
 
@@ -133,13 +140,29 @@ public class BerechnungsService {
             BigDecimal rA = rendite(kaA, m);
             topfA = topfA.multiply(BD_1.add(rA), MC);
 
+            // Jahreswerte
             if (m % 12 == 0) {
                 int jahr = m / 12;
-                jahreswerte.add(new WertpunktDto(jahr, topfA));
+
+                BigDecimal topf1 = topfA;
+                BigDecimal topf2 = BD_0;
+                BigDecimal topf3 = BD_0;
+                BigDecimal gesamt = topf1.add(topf2).add(topf3);
+
+                jahreswerte.add(new WertpunktDto(
+                        jahr,
+                        sumBeitraege,
+                        gesamt,
+                        topf1,
+                        topf2,
+                        topf3
+                ));
             }
         }
 
-        BigDecimal endwert = jahreswerte.isEmpty() ? topfA : jahreswerte.get(jahreswerte.size() - 1).wert();
+        BigDecimal endwert = jahreswerte.isEmpty()
+                ? topfA
+                : jahreswerte.get(jahreswerte.size() - 1).gesamtKapital();
 
         return new BerechnungErgebnisDto(
                 tarif.getId(),
@@ -154,12 +177,13 @@ public class BerechnungsService {
     // =========================================================
     // 2) HYBRID 2-TOPF
     //
-    // Logik (wie von dir beschrieben):
-    // - Monatlich Beitrag + Kosten => aktuelles Kapital
-    // - Ziel: garantieNiveau * SummeBeiträge soll am Ende mindestens erreicht werden
-    // - Berechne "Wie viel muss JETZT in Garantie-Topf, damit (mit Garantierendite bis Ende)
-    //   am Ende genau das Ziel rauskommt?"
-    // - Rest geht in Topf A (Kapitalanlage A)
+    // - Topf1 = Fonds (A)
+    // - Topf3 = Garantie (Deckungsstock)
+    // - Topf2 existiert hier nicht => immer 0
+    //
+    // Logik:
+    // Beitrag - Kosten => aktuelles Kapital
+    // Dann Allokation so, dass Garantie am Ende >= garantieNiveau * SummeEinzahlungen
     // =========================================================
     private BerechnungErgebnisDto simuliereHybrid2Topf(
             Tarif tarif,
@@ -174,39 +198,41 @@ public class BerechnungsService {
         BigDecimal topfG = BD_0;
 
         BigDecimal sumBeitraege = BD_0;
-        BigDecimal sumKosten = BD_0;
 
         List<WertpunktDto> jahreswerte = new ArrayList<>();
 
         for (int m = 1; m <= gesamtMonate; m++) {
 
-            // 1) Beitrag (vereinfacht: kommt erst mal in "Gesamt")
-            BigDecimal gesamt = topfA.add(topfG).add(beitrag);
+            // 1) Beitrag in Gesamt
             sumBeitraege = sumBeitraege.add(beitrag);
+            BigDecimal gesamt = topfA.add(topfG).add(beitrag);
 
-            // 2) Kosten runter (auf Gesamt betrachtet)
+            // 2) Kosten runter
             BigDecimal kosten = kostenSummeFuerMonat(kostenpunkte, m, beitrag, gesamt);
             if (kosten.compareTo(BD_0) > 0) {
                 gesamt = gesamt.subtract(kosten);
-                sumKosten = sumKosten.add(kosten);
                 if (gesamt.compareTo(BD_0) < 0) gesamt = BD_0;
             }
 
-            // 3) Garantiebedarf bestimmen (Present Value)
+            // 3) Garantiebedarf (PV)
             int restMonate = gesamtMonate - m;
-            BigDecimal ziel = sumBeitraege.multiply(nz(tarif.getGarantieNiveau()), MC); // z.B. 1.0 oder 0.5
 
-            BigDecimal gFactor = guaranteeFutureFactor(tarif, restMonate); // Wachstum 1€ im Garantietopf bis Ende
-            BigDecimal neededGNow = pvForFutureValue(ziel, gFactor); // ziel / gFactor
+            BigDecimal garantieNiveau = nz(tarif.getGarantieNiveau());
+            if (garantieNiveau.compareTo(BD_0) < 0) garantieNiveau = BD_0;
+            if (garantieNiveau.compareTo(BD_1) > 0) garantieNiveau = BD_1;
 
-            // Maximal im Garantietopf = gesamt
+            BigDecimal ziel = sumBeitraege.multiply(garantieNiveau, MC);
+
+            BigDecimal gFactor = guaranteeFutureFactor(tarif, restMonate);
+            BigDecimal neededGNow = pvForFutureValue(ziel, gFactor);
+
             if (neededGNow.compareTo(gesamt) > 0) neededGNow = gesamt;
             if (neededGNow.compareTo(BD_0) < 0) neededGNow = BD_0;
 
             topfG = neededGNow;
             topfA = gesamt.subtract(topfG);
 
-            // 4) Renditen anwenden (Monat m)
+            // 4) Renditen
             BigDecimal rA = rendite(kaA, m);
             topfA = topfA.multiply(BD_1.add(rA), MC);
 
@@ -216,12 +242,27 @@ public class BerechnungsService {
             // Jahreswerte
             if (m % 12 == 0) {
                 int jahr = m / 12;
-                BigDecimal gesamtWert = topfA.add(topfG);
-                jahreswerte.add(new WertpunktDto(jahr, gesamtWert));
+
+                BigDecimal topf1 = topfA;
+                BigDecimal topf2 = BD_0;     // kein Topf B im 2-Topf
+                BigDecimal topf3 = topfG;
+
+                BigDecimal gesamtKapital = topf1.add(topf2).add(topf3);
+
+                jahreswerte.add(new WertpunktDto(
+                        jahr,
+                        sumBeitraege,
+                        gesamtKapital,
+                        topf1,
+                        topf2,
+                        topf3
+                ));
             }
         }
 
-        BigDecimal endwert = jahreswerte.isEmpty() ? topfA.add(topfG) : jahreswerte.get(jahreswerte.size() - 1).wert();
+        BigDecimal endwert = jahreswerte.isEmpty()
+                ? topfA.add(topfG)
+                : jahreswerte.get(jahreswerte.size() - 1).gesamtKapital();
 
         return new BerechnungErgebnisDto(
                 tarif.getId(),
@@ -236,13 +277,12 @@ public class BerechnungsService {
     // =========================================================
     // 3) HYBRID 3-TOPF
     //
-    // - Topf A: Kapitalanlage A (Risikotopf)
-    // - Topf B: Garantiefonds (Kapitalanlage B) + Floor: nicht unter floor * letzterB fallen
-    // - Topf G: klassischer Garantietopf mit garantiezins (+ ggf Überschüsse)
+    // - Topf1 = Fonds (A)
+    // - Topf2 = Garantiefonds (B) mit Floor
+    // - Topf3 = Deckungsstock/klassische Garantie (G)
     //
-    // Ziel: garantieNiveau * SummeBeiträge muss am Ende erreicht werden.
-    // Absicherung erfolgt durch B und/oder G. Wir minimieren den "sicheren Anteil",
-    // damit maximal viel in A bleibt.
+    // Floor: TopfB soll nicht unter floor * letzterB fallen (monat-zu-monat)
+    // Garantie-Ziel: garantieNiveau * SummeEinzahlungen am Ende
     // =========================================================
     private BerechnungErgebnisDto simuliereHybrid3Topf(
             Tarif tarif,
@@ -258,46 +298,47 @@ public class BerechnungsService {
         BigDecimal topfB = BD_0;
         BigDecimal topfG = BD_0;
 
-        BigDecimal letzterB = BD_0; // für Floor
+        BigDecimal letzterB = BD_0;
 
         BigDecimal sumBeitraege = BD_0;
-        BigDecimal sumKosten = BD_0;
 
         BigDecimal floor = nz(tarif.getTopfBFloor());
         if (floor.compareTo(BD_0) < 0) floor = BD_0;
         if (floor.compareTo(BD_1) > 0) floor = BD_1;
 
+        BigDecimal garantieNiveau = nz(tarif.getGarantieNiveau());
+        if (garantieNiveau.compareTo(BD_0) < 0) garantieNiveau = BD_0;
+        if (garantieNiveau.compareTo(BD_1) > 0) garantieNiveau = BD_1;
+
         List<WertpunktDto> jahreswerte = new ArrayList<>();
 
         for (int m = 1; m <= gesamtMonate; m++) {
 
-            // 1) Beitrag (erst mal Gesamt)
-            BigDecimal gesamt = topfA.add(topfB).add(topfG).add(beitrag);
+            // 1) Beitrag in Gesamt
             sumBeitraege = sumBeitraege.add(beitrag);
+            BigDecimal gesamt = topfA.add(topfB).add(topfG).add(beitrag);
 
-            // 2) Kosten runter (auf Gesamt)
+            // 2) Kosten runter
             BigDecimal kosten = kostenSummeFuerMonat(kostenpunkte, m, beitrag, gesamt);
             if (kosten.compareTo(BD_0) > 0) {
                 gesamt = gesamt.subtract(kosten);
-                sumKosten = sumKosten.add(kosten);
                 if (gesamt.compareTo(BD_0) < 0) gesamt = BD_0;
             }
 
-            // 3) sichere Allokation bestimmen (B + G), Rest A
+            // 3) Ziel am Ende
             int restMonate = gesamtMonate - m;
+            BigDecimal ziel = sumBeitraege.multiply(garantieNiveau, MC);
 
-            BigDecimal ziel = sumBeitraege.multiply(nz(tarif.getGarantieNiveau()), MC);
-
-            // Zukunftsfaktoren aus 1€
+            // Faktoren
             BigDecimal gFactor = guaranteeFutureFactor(tarif, restMonate);
-            BigDecimal bFactor = bFutureFactorWithFloor(kaB, restMonate, floor); // konservativ: wir simulieren 1€ mit Floor-Regel
 
-            // Mindest-B wegen Floor-Sinn: wir wollen B nicht "zu klein" machen, wenn letzterB vorhanden:
-            // B darf nach Rendite nicht unter floor * letzterB fallen -> als Mindeststartwert setzen wir B_min = floor * letzterB
+            // B-Faktor konservativ ab nächstem Monat (damit es zur Stelle "m" passt)
+            BigDecimal bFactor = bFutureFactorWithFloor(kaB, m + 1, restMonate, floor);
+
+            // Mindest-B wegen Floor-Regel
             BigDecimal bMin = letzterB.multiply(floor, MC);
 
-            // Minimal sichere Lösung:
-            // 1) Versuch: alles sicher nur über B (weil B langfristig besser als Garantie sein soll)
+            // Strategie: möglichst viel in A lassen, sichere Seite durch (B und ggf. G)
             BigDecimal bNeededAllB = pvForFutureValue(ziel, bFactor);
             BigDecimal bStart = max(bMin, bNeededAllB);
 
@@ -305,12 +346,13 @@ public class BerechnungsService {
             BigDecimal newG;
 
             if (bStart.compareTo(gesamt) <= 0) {
-                // Garantie kann komplett über B abgedeckt werden
+                // komplett über B machbar
                 newB = bStart;
                 newG = BD_0;
             } else {
-                // nicht genug Kapital, also: setze B mindestens bMin und decke Rest über G (so gut es geht)
+                // nicht genug: setze B minimal, Rest G
                 newB = min(bMin, gesamt);
+
                 BigDecimal restZiel = ziel.subtract(newB.multiply(bFactor, MC), MC);
                 if (restZiel.compareTo(BD_0) <= 0) {
                     newG = BD_0;
@@ -318,73 +360,83 @@ public class BerechnungsService {
                     newG = pvForFutureValue(restZiel, gFactor);
                 }
 
-                // Falls newB + newG > gesamt, müssen wir B/G so kombinieren, dass es in gesamt passt.
                 BigDecimal safe = newB.add(newG);
                 if (safe.compareTo(gesamt) > 0) {
-                    // Optimaler Mix, um Ziel zu erreichen, wenn gFactor und bFactor unterschiedlich sind:
-                    // Wir suchen B so, dass B + G = gesamt und (B*bF + G*gF) = ziel, sofern möglich.
-                    // => B*(bF - gF) + gesamt*gF = ziel
-                    // => B = (ziel - gesamt*gF)/(bF - gF)
+                    // Mix so, dass B+G=gesamt und Ziel erfüllt wird (falls möglich)
                     BigDecimal denom = bFactor.subtract(gFactor, MC);
 
-                    if (denom.abs().compareTo(new BigDecimal("0.0000000001")) > 0) {
+                    if (denom.abs().compareTo(EPS) > 0) {
                         BigDecimal numer = ziel.subtract(gesamt.multiply(gFactor, MC), MC);
                         BigDecimal bSolve = numer.divide(denom, MC);
 
-                        // Clamp [bMin, gesamt]
                         bSolve = max(bMin, min(bSolve, gesamt));
-
                         newB = bSolve;
                         newG = gesamt.subtract(newB);
                         if (newG.compareTo(BD_0) < 0) newG = BD_0;
                     } else {
-                        // Faktoren fast gleich -> einfach alles in G (oder B_min), Rest in G
+                        // Faktoren fast gleich => B=min, Rest G
                         newB = min(bMin, gesamt);
                         newG = gesamt.subtract(newB);
+                        if (newG.compareTo(BD_0) < 0) newG = BD_0;
                     }
                 }
             }
 
-            // Rest in A
             BigDecimal safeFinal = newB.add(newG);
             if (safeFinal.compareTo(gesamt) > 0) {
-                // Safety clamp
                 safeFinal = gesamt;
                 if (newB.compareTo(gesamt) > 0) newB = gesamt;
                 newG = gesamt.subtract(newB);
+                if (newG.compareTo(BD_0) < 0) newG = BD_0;
             }
+
             topfB = newB;
             topfG = newG;
             topfA = gesamt.subtract(safeFinal);
 
-            // 4) Renditen anwenden (Monat m)
+            // 4) Renditen anwenden
+
+            // A
             BigDecimal rA = rendite(kaA, m);
             topfA = topfA.multiply(BD_1.add(rA), MC);
 
-            // Topf B: Rendite + Floor
+            // B + Floor (monat-zu-monat)
             BigDecimal rB = rendite(kaB, m);
             BigDecimal bAfter = topfB.multiply(BD_1.add(rB), MC);
 
-            // Floor: nicht unter floor * letzterB fallen (monat-zu-monat)
             BigDecimal floorValue = letzterB.multiply(floor, MC);
             if (bAfter.compareTo(floorValue) < 0) bAfter = floorValue;
 
             topfB = bAfter;
-            letzterB = topfB; // Update
+            letzterB = topfB;
 
-            // Garantietopf
+            // G
             BigDecimal rG = garantieMonatsrendite(tarif);
             topfG = topfG.multiply(BD_1.add(rG), MC);
 
-            // Jahreswert speichern
+            // Jahreswerte
             if (m % 12 == 0) {
                 int jahr = m / 12;
-                BigDecimal gesamtWert = topfA.add(topfB).add(topfG);
-                jahreswerte.add(new WertpunktDto(jahr, gesamtWert));
+
+                BigDecimal topf1 = topfA;
+                BigDecimal topf2 = topfB;
+                BigDecimal topf3 = topfG;
+                BigDecimal gesamtKapital = topf1.add(topf2).add(topf3);
+
+                jahreswerte.add(new WertpunktDto(
+                        jahr,
+                        sumBeitraege,
+                        gesamtKapital,
+                        topf1,
+                        topf2,
+                        topf3
+                ));
             }
         }
 
-        BigDecimal endwert = jahreswerte.isEmpty() ? topfA.add(topfB).add(topfG) : jahreswerte.get(jahreswerte.size() - 1).wert();
+        BigDecimal endwert = jahreswerte.isEmpty()
+                ? topfA.add(topfB).add(topfG)
+                : jahreswerte.get(jahreswerte.size() - 1).gesamtKapital();
 
         return new BerechnungErgebnisDto(
                 tarif.getId(),
@@ -413,11 +465,11 @@ public class BerechnungsService {
     /**
      * Monatliche Garantierendite:
      * - garantiezins ist p.a. (z.B. 0.0225)
-     * - wir rechnen grob auf Monat um (p.a./12). Für die Simulation reicht das.
-     * - Überschüsse: Dummy +0.5% p.a. (bis du echte Logik/Tarif-Feld hast).
+     * - wir rechnen grob p.a./12
+     * - Überschüsse: Dummy +0.5% p.a. (Platzhalter)
      */
     private BigDecimal garantieMonatsrendite(Tarif tarif) {
-        BigDecimal gzPa = nz(tarif.getGarantiezins()); // 0.0225
+        BigDecimal gzPa = nz(tarif.getGarantiezins());
         if (gzPa.compareTo(BD_0) <= 0) return BD_0;
 
         BigDecimal addPa = BD_0;
@@ -430,11 +482,12 @@ public class BerechnungsService {
     }
 
     /**
-     * Faktor, wie 1€ im Garantietopf in restMonate wächst.
+     * Faktor: wie 1€ im Garantietopf in restMonate wächst.
      */
     private BigDecimal guaranteeFutureFactor(Tarif tarif, int restMonate) {
         if (restMonate <= 0) return BD_1;
         BigDecimal rM = garantieMonatsrendite(tarif);
+
         BigDecimal factor = BD_1;
         for (int i = 0; i < restMonate; i++) {
             factor = factor.multiply(BD_1.add(rM), MC);
@@ -443,20 +496,20 @@ public class BerechnungsService {
     }
 
     /**
-     * Faktor, wie 1€ im Topf B in restMonate wächst, unter Floor-Regel.
-     * Wir simulieren hier 1€ "monatsweise", wenden Rendite an und clampen bei floor * letzterWert.
+     * Faktor: wie 1€ in Topf B in restMonate wächst (mit Floor-Regel),
+     * simuliert ab startMonth (1-based) für restMonate Monate.
      */
-    private BigDecimal bFutureFactorWithFloor(Kapitalanlage kaB, int restMonate, BigDecimal floor) {
+    private BigDecimal bFutureFactorWithFloor(Kapitalanlage kaB, int startMonth, int restMonate, BigDecimal floor) {
         if (restMonate <= 0) return BD_1;
         if (kaB == null) return BD_1;
 
         BigDecimal v = BD_1;
         BigDecimal last = BD_1;
 
-        // Wir können nur ab "nächsten Monat" simulieren; für Näherung reicht: nimm die ersten restMonate Renditen ab Index 0.
-        // In der echten Welt würdest du hier ab aktuellem Monat weiterlaufen lassen. Für Garantie-Bedarf ist das ok genug.
-        for (int i = 1; i <= restMonate; i++) {
-            BigDecimal r = rendite(kaB, i);
+        for (int i = 0; i < restMonate; i++) {
+            int monthIndex = startMonth + i;
+            BigDecimal r = rendite(kaB, monthIndex);
+
             BigDecimal after = v.multiply(BD_1.add(r), MC);
 
             BigDecimal floorValue = last.multiply(floor, MC);
@@ -465,7 +518,8 @@ public class BerechnungsService {
             v = after;
             last = v;
         }
-        return v; // da Start=1
+
+        return v; // Start=1
     }
 
     private BigDecimal pvForFutureValue(BigDecimal futureValue, BigDecimal factor) {
@@ -491,7 +545,7 @@ public class BerechnungsService {
     }
 
     // =========================================================
-    // Kosten (V2 - wie wir es aufgebaut haben)
+    // Kosten (V2)
     // =========================================================
 
     private BigDecimal kostenSummeFuerMonat(List<Kostenpunkt> punkte, int monatIndex, BigDecimal beitrag, BigDecimal kapitalGesamt) {
@@ -500,7 +554,10 @@ public class BerechnungsService {
 
         for (Kostenpunkt p : punkte) {
             if (p == null) continue;
+
+            // Lombok boolean => isAktiv()
             if (!p.isAktiv()) continue;
+
             if (!giltInMonat(p, monatIndex)) continue;
 
             BigDecimal kosten = kostenWertFuerPunkt(p, beitrag, kapitalGesamt);
@@ -512,7 +569,6 @@ public class BerechnungsService {
     private boolean giltInMonat(Kostenpunkt p, int m) {
         if (p == null) return false;
 
-        // optional: Gültigkeit
         Integer von = p.getGueltigVonMonat();
         Integer bis = p.getGueltigBisMonat();
         if (von != null && m < von) return false;
@@ -530,13 +586,6 @@ public class BerechnungsService {
         };
     }
 
-    /**
-     * Regeln:
-     * - EURO + FIX: wert ist Euro (bei VERTEILT_* = Gesamtbetrag -> wird auf Monate verteilt)
-     * - PROZENT + BEITRAG: beitrag * (wert/100) (wenn ProzentPeriode=JÄHRLICH dann /12)
-     * - PROZENT + KAPITAL: kapital * (wert/100) (wenn ProzentPeriode=JÄHRLICH dann /12)
-     * + optional: minimumEuro
-     */
     private BigDecimal kostenWertFuerPunkt(Kostenpunkt p, BigDecimal beitrag, BigDecimal kapital) {
         BigDecimal wert = nz(p.getWert());
 
@@ -553,6 +602,7 @@ public class BerechnungsService {
 
             BigDecimal min = nz(p.getMinimumEuro());
             if (min.compareTo(BD_0) > 0) euro = euro.max(min);
+
             return euro;
         }
 
@@ -560,12 +610,11 @@ public class BerechnungsService {
         BigDecimal basis = switch (p.getBasis()) {
             case BEITRAG -> beitrag;
             case KAPITAL -> kapital;
-            case FIX -> BD_0; // PROZENT+FIX => 0 (fachlich unsinnig)
+            case FIX -> BD_0;
         };
 
         BigDecimal pct = wert.divide(BD_100, 12, RoundingMode.HALF_UP);
 
-        // Prozentperiode: wenn JÄHRLICH => /12
         ProzentPeriode periode = p.getProzentPeriode();
         if (periode == null) periode = ProzentPeriode.MONATLICH;
         if (periode == ProzentPeriode.JAHRLICH) {
@@ -575,7 +624,6 @@ public class BerechnungsService {
         BigDecimal kosten = basis.multiply(pct, MC);
 
         if (divisor > 1) {
-            // Verteilte Prozentkosten (vereinfachend)
             kosten = kosten.divide(BigDecimal.valueOf(divisor), 6, RoundingMode.HALF_UP);
         }
 

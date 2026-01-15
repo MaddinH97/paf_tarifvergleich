@@ -1,188 +1,573 @@
 <!doctype html>
 <html lang="de">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <title>Admin – Tarifvergleich</title>
+
     <style>
-        body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; background:#fafafa; color:#111; }
-        header{ display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #ddd; background:#fff; position:sticky; top:0; }
-        .btn{ display:inline-block; padding:8px 12px; border:1px solid #333; border-radius:8px; text-decoration:none; color:#111; background:#fff; cursor:pointer; }
-        .btn.primary{ background:#111; color:#fff; border-color:#111; }
-        .btn:disabled{ opacity:.5; cursor:not-allowed; }
-        main{ padding:16px; max-width:1200px; margin:0 auto; }
-        h1{ font-size:20px; margin:0; }
-        .card{ background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:12px; margin:12px 0; }
-        table{ width:100%; border-collapse:collapse; }
-        th, td{ padding:10px; border-bottom:1px solid #eee; text-align:left; vertical-align:top; }
-        th{ font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:#444; }
-        .row-actions{ display:flex; gap:8px; flex-wrap:wrap; }
-        .muted{ color:#666; font-size:13px; }
-        .pill{ display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; background:#f7f7f7; margin-right:6px; }
-        .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-        @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
-        pre{ white-space:pre-wrap; word-break:break-word; background:#f6f6f6; padding:10px; border-radius:8px; border:1px solid #eee; }
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; background:#fafafa; }
+        header { background:#fff; border-bottom:1px solid #e6e6e6; padding:14px 18px; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+        header b { font-size:16px; }
+        header a { text-decoration:none; color:#1a73e8; font-weight:700; }
+
+        main { padding:18px; max-width:1200px; margin:0 auto; }
+
+        .tabs { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+        .tab { padding:10px 12px; border:1px solid #d7d7d7; border-radius:10px; background:#fff; cursor:pointer; font-weight:700; }
+        .tab.active { border-color:#1a73e8; box-shadow:0 0 0 3px rgba(70,130,255,.12); }
+
+        .card { background:#fff; border:1px solid #e6e6e6; border-radius:12px; padding:14px; margin-bottom:12px; }
+        .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap:10px; }
+        .col-3 { grid-column: span 3; }
+        .col-4 { grid-column: span 4; }
+        .col-6 { grid-column: span 6; }
+        .col-12 { grid-column: span 12; }
+        @media (max-width: 980px){ .col-3,.col-4,.col-6{grid-column:span 12;} }
+
+        label { display:block; font-size:12px; opacity:.75; margin-bottom:6px; }
+        input, select { width:100%; padding:10px; border:1px solid #d0d0d0; border-radius:10px; box-sizing:border-box; background:#fff; }
+
+        button { padding:10px 12px; border:1px solid #cfcfcf; background:#fff; border-radius:10px; cursor:pointer; font-weight:700; }
+        button.primary { background:#1a73e8; border-color:#1a73e8; color:#fff; }
+        button.danger { border-color:#ffb3bd; background:#fff0f2; }
+        .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+
+        table { width:100%; border-collapse:collapse; font-size:13px; }
+        th, td { padding:10px 8px; border-bottom:1px solid #eee; text-align:left; vertical-align:top; }
+        th { background:#f6f6f6; position:sticky; top:0; z-index:2; }
+
+        .muted{opacity:.75;font-size:12px;}
+        .error{color:#b00020;background:#fff0f2;border:1px solid #ffd2d8;padding:10px;border-radius:10px;white-space:pre-wrap;}
+        .ok{color:#0a7a2f;background:#effff3;border:1px solid #b9f3c8;padding:10px;border-radius:10px;white-space:pre-wrap;}
     </style>
 </head>
+
 <body>
 <header>
     <div>
-        <h1>Admin</h1>
-        <div class="muted">Tarife / Fonds / Anbieter einsehen und später pflegen</div>
+        <b>Admin</b>
+        <div class="muted">Login: admin / admin1</div>
     </div>
-    <div class="row-actions">
-        <a class="btn" href="/index.html">Zurück</a>
-        <button class="btn primary" id="btnNewTarif" disabled>+ Neuer Tarif (kommt als Nächstes)</button>
+    <div class="row">
+        <a href="index.html">Zur User-Ansicht</a>
+        <form action="/logout" method="post" style="margin:0;">
+            <button class="danger" type="submit">Logout</button>
+        </form>
     </div>
 </header>
 
 <main>
-    <div class="grid">
-        <section class="card">
-            <h2 style="margin:0 0 8px 0; font-size:16px;">Tarife</h2>
-            <div class="muted" id="tarifCount">lädt…</div>
-            <div style="overflow:auto; margin-top:8px;">
-                <table id="tarifTable">
-                    <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Tarif</th>
-                        <th>Anbieter</th>
-                        <th>Garantiezins</th>
-                        <th>Laufzeit</th>
-                        <th>Rentenfaktor</th>
-                        <th>Fonds</th>
-                        <th>Aktionen</th>
-                    </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-        </section>
+    <div class="tabs">
+        <div class="tab active" data-tab="tarife">Tarife</div>
+        <div class="tab" data-tab="kostenstrukturen">Kostenstrukturen</div>
+        <div class="tab" data-tab="kostenpunkte">Kostenpunkte</div>
+        <div class="tab" data-tab="kapitalanlagen">Kapitalanlagen</div>
+    </div>
 
-        <section class="card">
-            <h2 style="margin:0 0 8px 0; font-size:16px;">Fonds</h2>
-            <div class="muted" id="fondsCount">lädt…</div>
-            <div style="overflow:auto; margin-top:8px;">
-                <table id="fondsTable">
+    <div id="msg"></div>
+
+    <!-- TARIFE -->
+    <section id="tab-tarife">
+        <div class="card">
+            <div class="row" style="justify-content:space-between;">
+                <div><b>Tarife</b> <span class="muted">(CRUD)</span></div>
+                <div class="row">
+                    <button id="btnReloadTarife">Reload</button>
+                    <button class="primary" id="btnNewTarif">Neuer Tarif</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" id="tarifFormCard" style="display:none;">
+            <b id="tarifFormTitle">Tarif bearbeiten</b>
+            <div class="grid" style="margin-top:10px;">
+                <input type="hidden" id="tarif_id"/>
+
+                <div class="col-4">
+                    <label>Name</label><input id="tarif_name"/>
+                </div>
+                <div class="col-4">
+                    <label>Code</label><input id="tarif_code"/>
+                </div>
+                <div class="col-4">
+                    <label>Erscheinungsjahr</label><input id="tarif_jahr" type="number"/>
+                </div>
+
+                <div class="col-3">
+                    <label>Aktiv</label>
+                    <select id="tarif_aktiv">
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                    </select>
+                </div>
+
+                <div class="col-3">
+                    <label>TarifTyp</label>
+                    <select id="tarif_typ">
+                        <option value="FONDS">FONDS</option>
+                        <option value="HYBRID_2_TOPF">HYBRID_2_TOPF</option>
+                        <option value="HYBRID_3_TOPF">HYBRID_3_TOPF</option>
+                    </select>
+                </div>
+
+                <div class="col-3">
+                    <label>Garantiezins (p.a., z.B. 0.0225)</label>
+                    <input id="tarif_garantiezins" type="number" step="0.0001"/>
+                </div>
+
+                <div class="col-3">
+                    <label>GarantieModus</label>
+                    <select id="tarif_garantiemodus">
+                        <option value="OHNE_UEBERSCHUESSE">OHNE_UEBERSCHUESSE</option>
+                        <option value="MIT_UEBERSCHUESSE">MIT_UEBERSCHUESSE</option>
+                    </select>
+                </div>
+
+                <div class="col-3">
+                    <label>GarantieNiveau (1.0 = 100%)</label>
+                    <input id="tarif_garantieniveau" type="number" step="0.01"/>
+                </div>
+
+                <div class="col-3">
+                    <label>Topf B Floor (z.B. 0.80)</label>
+                    <input id="tarif_topfbfloor" type="number" step="0.01"/>
+                </div>
+
+                <div class="col-3">
+                    <label>Min Startalter</label>
+                    <input id="tarif_minalter" type="number"/>
+                </div>
+
+                <div class="col-3">
+                    <label>Max Endalter</label>
+                    <input id="tarif_maxalter" type="number"/>
+                </div>
+
+                <div class="col-3">
+                    <label>Mindestbeitrag Monat</label>
+                    <input id="tarif_minbeitrag" type="number" step="1"/>
+                </div>
+
+                <div class="col-12">
+                    <div class="row">
+                        <button class="primary" id="btnSaveTarif">Speichern</button>
+                        <button id="btnCancelTarif">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="overflow:auto; max-height:520px;">
+                <table>
                     <thead>
                     <tr>
                         <th>ID</th>
                         <th>Name</th>
-                        <th>ISIN</th>
+                        <th>Code</th>
                         <th>Typ</th>
-                        <th>Risiko</th>
-                        <th>Rendite p.a.</th>
+                        <th>Aktiv</th>
+                        <th>Garantiezins</th>
+                        <th>GarantieNiveau</th>
+                        <th>TopfBFloor</th>
+                        <th>Aktion</th>
                     </tr>
                     </thead>
-                    <tbody></tbody>
+                    <tbody id="tarifeTbody"></tbody>
                 </table>
             </div>
-        </section>
-    </div>
+        </div>
+    </section>
 
-    <section class="card">
-        <h2 style="margin:0 0 8px 0; font-size:16px;">Debug (API Response)</h2>
-        <div class="muted">Hilft beim Entwickeln – kann später entfernt werden</div>
-        <pre id="debugOut">lädt…</pre>
+    <!-- KOSTENSTRUKTUREN -->
+    <section id="tab-kostenstrukturen" style="display:none;">
+        <div class="card">
+            <div class="row" style="justify-content:space-between;">
+                <div><b>Kostenstrukturen</b> <span class="muted">(pro Tarif + Beitrag + Laufzeit)</span></div>
+                <div class="row">
+                    <button id="btnReloadKs">Reload</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="grid">
+                <div class="col-4">
+                    <label>Tarif ID (Filter optional)</label>
+                    <input id="ks_filter_tarifId" placeholder="z.B. 1">
+                </div>
+                <div class="col-12">
+                    <button id="btnFilterKs">Filtern</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="overflow:auto; max-height:520px;">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Tarif</th>
+                        <th>Beitrag</th>
+                        <th>Laufzeit</th>
+                        <th>Aktiv</th>
+                        <th>Aktion</th>
+                    </tr>
+                    </thead>
+                    <tbody id="ksTbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- KOSTENPUNKTE -->
+    <section id="tab-kostenpunkte" style="display:none;">
+        <div class="card">
+            <div class="row" style="justify-content:space-between;">
+                <div><b>Kostenpunkte</b> <span class="muted">(zu einer Kostenstruktur)</span></div>
+                <div class="row">
+                    <button id="btnReloadKp">Reload</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="grid">
+                <div class="col-4">
+                    <label>Kostenstruktur ID (Pflicht)</label>
+                    <input id="kp_kostenstrukturId" placeholder="z.B. 10">
+                </div>
+                <div class="col-12">
+                    <button id="btnLoadKp">Kostenpunkte laden</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="overflow:auto; max-height:520px;">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Aktiv</th>
+                        <th>Rhythmus</th>
+                        <th>Typ</th>
+                        <th>Basis</th>
+                        <th>Wert</th>
+                        <th>Aktion</th>
+                    </tr>
+                    </thead>
+                    <tbody id="kpTbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- KAPITALANLAGEN -->
+    <section id="tab-kapitalanlagen" style="display:none;">
+        <div class="card">
+            <div class="row" style="justify-content:space-between;">
+                <div><b>Kapitalanlagen</b> <span class="muted">(aktiv, Rate, Typ)</span></div>
+                <div class="row">
+                    <button id="btnReloadKap">Reload</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="overflow:auto; max-height:520px;">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Typ</th>
+                        <th>AnnualRate</th>
+                        <th>Aktiv</th>
+                        <th>Aktion</th>
+                    </tr>
+                    </thead>
+                    <tbody id="kapTbody"></tbody>
+                </table>
+            </div>
+        </div>
     </section>
 </main>
 
 <script>
-    async function getJson(url){
-        const res = await fetch(url);
-        if(!res.ok) throw new Error(url + " -> " + res.status);
-        return await res.json();
+    // ---------- Tabs ----------
+    document.querySelectorAll(".tab").forEach(t => {
+        t.addEventListener("click", () => {
+            document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+            t.classList.add("active");
+            const name = t.dataset.tab;
+            document.querySelectorAll("section[id^='tab-']").forEach(s => s.style.display = "none");
+            document.getElementById("tab-" + name).style.display = "block";
+        });
+    });
+
+    // ---------- Utils ----------
+    function showMsg(text, ok=true) {
+        const el = document.getElementById("msg");
+        el.innerHTML = `<div class="${ok ? 'ok' : 'error'}">${escapeHtml(text)}</div>`;
+        setTimeout(() => el.innerHTML = "", 5000);
     }
 
-    function td(text){
-        const el = document.createElement('td');
-        el.textContent = text ?? '';
-        return el;
+    function escapeHtml(s){
+        return String(s ?? "").replace(/[&<>"']/g, c => ({
+            "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+        }[c]));
     }
 
-    function fmt(n){
-        if(n === null || n === undefined) return '';
-        return String(n);
+    async function apiGet(url){
+        const r = await fetch(url, { headers: { "Accept": "application/json" }});
+        if(!r.ok) throw new Error(url + " -> " + r.status);
+        return r.json();
     }
 
-    function renderTarife(tarife){
-        document.getElementById('tarifCount').textContent = `${tarife.length} Tarif(e)`;
-        const tbody = document.querySelector('#tarifTable tbody');
-        tbody.innerHTML = '';
-
-        for(const t of tarife){
-            const tr = document.createElement('tr');
-            tr.appendChild(td(t.id));
-            tr.appendChild(td(`${t.tarifName} (${t.tarifCode})`));
-            tr.appendChild(td(t.anbieter?.name ?? ''));
-            tr.appendChild(td(fmt(t.garantiezins)));
-            tr.appendChild(td(fmt(t.laufzeitJahre)));
-            tr.appendChild(td(fmt(t.rentenfaktor)));
-
-            const fondsTd = document.createElement('td');
-            (t.fondsListe ?? []).forEach(f => {
-                const pill = document.createElement('span');
-                pill.className = 'pill';
-                pill.textContent = f.name;
-                fondsTd.appendChild(pill);
-            });
-            tr.appendChild(fondsTd);
-
-            const actions = document.createElement('td');
-            actions.className = 'row-actions';
-
-            const editBtn = document.createElement('button');
-            editBtn.className = 'btn';
-            editBtn.textContent = 'Bearbeiten';
-            editBtn.onclick = () => alert('Bearbeiten kommt als Nächstes (PUT /api/tarife/{id})');
-
-            const delBtn = document.createElement('button');
-            delBtn.className = 'btn';
-            delBtn.textContent = 'Löschen';
-            delBtn.onclick = () => alert('Löschen kommt als Nächstes (DELETE /api/tarife/{id})');
-
-            actions.appendChild(editBtn);
-            actions.appendChild(delBtn);
-            tr.appendChild(actions);
-
-            tbody.appendChild(tr);
-        }
+    async function apiPost(url, body){
+        const r = await fetch(url, {
+            method:"POST",
+            headers:{ "Content-Type":"application/json", "Accept":"application/json" },
+            body: JSON.stringify(body)
+        });
+        if(!r.ok) throw new Error(url + " -> " + r.status + "\n" + await r.text());
+        return r.json();
     }
 
-    function renderFonds(fonds){
-        document.getElementById('fondsCount').textContent = `${fonds.length} Fonds`;
-        const tbody = document.querySelector('#fondsTable tbody');
-        tbody.innerHTML = '';
-        for(const f of fonds){
-            const tr = document.createElement('tr');
-            tr.appendChild(td(f.id));
-            tr.appendChild(td(f.name));
-            tr.appendChild(td(f.isin));
-            tr.appendChild(td(f.typ));
-            tr.appendChild(td(f.risikoklasse));
-            tr.appendChild(td(fmt(f.erwarteteRenditePa)));
-            tbody.appendChild(tr);
-        }
+    async function apiPut(url, body){
+        const r = await fetch(url, {
+            method:"PUT",
+            headers:{ "Content-Type":"application/json", "Accept":"application/json" },
+            body: JSON.stringify(body)
+        });
+        if(!r.ok) throw new Error(url + " -> " + r.status + "\n" + await r.text());
+        return r.json();
     }
 
-    async function init(){
+    async function apiDel(url){
+        const r = await fetch(url, { method:"DELETE" });
+        if(!r.ok) throw new Error(url + " -> " + r.status + "\n" + await r.text());
+    }
+
+    // ---------- Tarife ----------
+    const tarifFormCard = document.getElementById("tarifFormCard");
+
+    document.getElementById("btnReloadTarife").onclick = loadTarife;
+    document.getElementById("btnNewTarif").onclick = () => openTarifForm(null);
+    document.getElementById("btnCancelTarif").onclick = () => tarifFormCard.style.display = "none";
+    document.getElementById("btnSaveTarif").onclick = saveTarif;
+
+    async function loadTarife(){
         try{
-            const [tarife, fonds] = await Promise.all([
-                getJson('/api/tarife'),
-                getJson('/api/fonds')
-            ]);
+            const list = await apiGet("/api/admin/tarife");
+            const tb = document.getElementById("tarifeTbody");
+            tb.innerHTML = "";
+            for(const t of list){
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+          <td>${t.id}</td>
+          <td><b>${escapeHtml(t.tarifName)}</b></td>
+          <td>${escapeHtml(t.tarifCode)}</td>
+          <td>${escapeHtml(t.tarifTyp)}</td>
+          <td>${t.aktiv}</td>
+          <td>${t.garantiezins ?? ""}</td>
+          <td>${t.garantieNiveau ?? ""}</td>
+          <td>${t.topfBFloor ?? ""}</td>
+          <td>
+            <button data-edit="${t.id}">Bearbeiten</button>
+            <button class="danger" data-del="${t.id}">Löschen</button>
+          </td>
+        `;
+                tb.appendChild(tr);
+            }
 
-            renderTarife(tarife);
-            renderFonds(fonds);
-            document.getElementById('debugOut').textContent =
-                JSON.stringify({tarife, fonds}, null, 2);
+            tb.querySelectorAll("button[data-edit]").forEach(b => b.onclick = async () => {
+                const id = b.dataset.edit;
+                const t = await apiGet("/api/admin/tarife/" + id);
+                openTarifForm(t);
+            });
+
+            tb.querySelectorAll("button[data-del]").forEach(b => b.onclick = async () => {
+                const id = b.dataset.del;
+                if(!confirm("Tarif wirklich löschen?")) return;
+                await apiDel("/api/admin/tarife/" + id);
+                showMsg("Gelöscht.");
+                await loadTarife();
+            });
+
+            showMsg("Tarife geladen.");
         }catch(e){
-            document.getElementById('debugOut').textContent = 'Fehler: ' + e.message;
+            showMsg(String(e), false);
         }
     }
 
-    init();
+    function openTarifForm(t){
+        tarifFormCard.style.display = "block";
+        document.getElementById("tarifFormTitle").textContent = t ? `Tarif #${t.id} bearbeiten` : "Neuen Tarif anlegen";
+
+        document.getElementById("tarif_id").value = t?.id ?? "";
+        document.getElementById("tarif_name").value = t?.tarifName ?? "";
+        document.getElementById("tarif_code").value = t?.tarifCode ?? "";
+        document.getElementById("tarif_jahr").value = t?.erscheinungsjahr ?? "";
+        document.getElementById("tarif_aktiv").value = String(t?.aktiv ?? true);
+
+        document.getElementById("tarif_typ").value = t?.tarifTyp ?? "FONDS";
+        document.getElementById("tarif_garantiezins").value = t?.garantiezins ?? "0";
+        document.getElementById("tarif_garantiemodus").value = t?.garantieModus ?? "OHNE_UEBERSCHUESSE";
+        document.getElementById("tarif_garantieniveau").value = t?.garantieNiveau ?? "1.0";
+        document.getElementById("tarif_topfbfloor").value = t?.topfBFloor ?? "0.80";
+
+        document.getElementById("tarif_minalter").value = t?.minStartalter ?? "";
+        document.getElementById("tarif_maxalter").value = t?.maxEndalter ?? "";
+        document.getElementById("tarif_minbeitrag").value = t?.mindestbeitragMonat ?? "";
+    }
+
+    async function saveTarif(){
+        try{
+            const id = document.getElementById("tarif_id").value.trim();
+
+            const payload = {
+                id: id ? Number(id) : null,
+                tarifName: document.getElementById("tarif_name").value.trim(),
+                tarifCode: document.getElementById("tarif_code").value.trim(),
+                erscheinungsjahr: Number(document.getElementById("tarif_jahr").value || 0),
+                aktiv: document.getElementById("tarif_aktiv").value === "true",
+
+                garantiezins: Number(document.getElementById("tarif_garantiezins").value || 0),
+                tarifTyp: document.getElementById("tarif_typ").value,
+                garantieModus: document.getElementById("tarif_garantiemodus").value,
+                garantieNiveau: Number(document.getElementById("tarif_garantieniveau").value || 1.0),
+                topfBFloor: Number(document.getElementById("tarif_topfbfloor").value || 0.80),
+
+                minStartalter: Number(document.getElementById("tarif_minalter").value || 0),
+                maxEndalter: Number(document.getElementById("tarif_maxalter").value || 0),
+                mindestbeitragMonat: Number(document.getElementById("tarif_minbeitrag").value || 0),
+
+                anbieterId: null,
+                fondsIds: []
+            };
+
+            if(!payload.tarifName) throw new Error("Name fehlt.");
+
+            let saved;
+            if(id){
+                saved = await apiPut("/api/admin/tarife/" + id, payload);
+            }else{
+                saved = await apiPost("/api/admin/tarife", payload);
+            }
+
+            tarifFormCard.style.display = "none";
+            showMsg("Gespeichert: " + saved.id);
+            await loadTarife();
+        }catch(e){
+            showMsg(String(e), false);
+        }
+    }
+
+    // ---------- Kostenstrukturen ----------
+    document.getElementById("btnReloadKs").onclick = () => loadKs(null);
+    document.getElementById("btnFilterKs").onclick = () => {
+        const v = document.getElementById("ks_filter_tarifId").value.trim();
+        loadKs(v ? Number(v) : null);
+    };
+
+    async function loadKs(tarifId){
+        try{
+            const url = tarifId ? `/api/admin/kostenstrukturen?tarifId=${tarifId}` : "/api/admin/kostenstrukturen";
+            const list = await apiGet(url);
+            const tb = document.getElementById("ksTbody");
+            tb.innerHTML = "";
+            for(const k of list){
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+          <td>${k.id}</td>
+          <td>${escapeHtml(k.tarifName ?? "")} <span class="muted">(#${k.tarifId})</span></td>
+          <td>${k.beitragMonat}</td>
+          <td>${k.laufzeitJahre}</td>
+          <td>${k.aktiv}</td>
+          <td><span class="muted">CRUD folgt als nächster Schritt</span></td>
+        `;
+                tb.appendChild(tr);
+            }
+            showMsg("Kostenstrukturen geladen.");
+        }catch(e){
+            showMsg(String(e), false);
+        }
+    }
+
+    // ---------- Kostenpunkte ----------
+    document.getElementById("btnReloadKp").onclick = () => {
+        const id = document.getElementById("kp_kostenstrukturId").value.trim();
+        if(id) loadKp(Number(id));
+        else showMsg("Bitte Kostenstruktur ID eingeben.", false);
+    };
+    document.getElementById("btnLoadKp").onclick = () => {
+        const id = document.getElementById("kp_kostenstrukturId").value.trim();
+        if(id) loadKp(Number(id));
+        else showMsg("Bitte Kostenstruktur ID eingeben.", false);
+    };
+
+    async function loadKp(kostenstrukturId){
+        try{
+            const list = await apiGet(`/api/admin/kostenpunkte?kostenstrukturId=${kostenstrukturId}`);
+            const tb = document.getElementById("kpTbody");
+            tb.innerHTML = "";
+            for(const p of list){
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+          <td>${p.id}</td>
+          <td>${escapeHtml(p.name)}</td>
+          <td>${p.aktiv}</td>
+          <td>${escapeHtml(p.rhythmus)}</td>
+          <td>${escapeHtml(p.typ)}</td>
+          <td>${escapeHtml(p.basis)}</td>
+          <td>${p.wert ?? ""}</td>
+          <td><span class="muted">CRUD folgt als nächster Schritt</span></td>
+        `;
+                tb.appendChild(tr);
+            }
+            showMsg("Kostenpunkte geladen.");
+        }catch(e){
+            showMsg(String(e), false);
+        }
+    }
+
+    // ---------- Kapitalanlagen ----------
+    document.getElementById("btnReloadKap").onclick = loadKap;
+
+    async function loadKap(){
+        try{
+            const list = await apiGet("/api/admin/kapitalanlagen");
+            const tb = document.getElementById("kapTbody");
+            tb.innerHTML = "";
+            for(const k of list){
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+          <td>${k.id}</td>
+          <td>${escapeHtml(k.name)}</td>
+          <td>${escapeHtml(k.typ)}</td>
+          <td>${k.annualRate ?? ""}</td>
+          <td>${k.aktiv}</td>
+          <td><span class="muted">Edit per API ist da, UI-Edit folgt</span></td>
+        `;
+                tb.appendChild(tr);
+            }
+            showMsg("Kapitalanlagen geladen.");
+        }catch(e){
+            showMsg(String(e), false);
+        }
+    }
+
+    // Initial loads
+    loadTarife();
+    loadKs(null);
+    // KP braucht KostenstrukturId -> manuell
+    loadKap();
 </script>
+
 </body>
 </html>

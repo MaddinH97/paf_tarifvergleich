@@ -4,55 +4,50 @@ import de.paf.tarifvergleich.domain.Kapitalanlage;
 import de.paf.tarifvergleich.domain.KapitalanlageTyp;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 
 public class KapitalanlageFactory {
 
-    private static final int MONTHS_65Y = 65 * 12;
-
     private KapitalanlageFactory() {}
 
-    public static Kapitalanlage createFixed(String name, BigDecimal annualRate) {
-        BigDecimal monthly = annualToMonthly(annualRate);
+    /**
+     * Baut eine Kapitalanlage aus monatlichen Renditen.
+     *
+     * @param name Anzeigename (z.B. "FantasyFonds")
+     * @param monthlyReturns Dezimalrenditen je Monat (z.B. 0.01 = +1%)
+     */
+    public static Kapitalanlage createFromMonthlyReturns(String name, List<BigDecimal> monthlyReturns) {
+        List<BigDecimal> renditen = (monthlyReturns == null) ? List.of() : monthlyReturns;
 
         return Kapitalanlage.builder()
                 .name(name)
-                .typ(KapitalanlageTyp.FIXED)
-                .annualRate(annualRate)
-                .monatlicheRenditen(fill(monthly, MONTHS_65Y))
+                .typ(KapitalanlageTyp.FANTASY_FONDS)
+                .annualRate(null) // bei echten Monatsreihen nicht nötig
+                .monatlicheRenditen(new ArrayList<>(renditen))
                 .aktiv(true)
                 .build();
     }
 
-    public static Kapitalanlage createFantasyMsciWorldLike() {
-        return Kapitalanlage.builder()
-                .name("FantasyFonds (MSCI-World-like, 9% p.a.)")
-                .typ(KapitalanlageTyp.FANTASY)
-                .annualRate(null)
-                .monatlicheRenditen(
-                        RenditeGenerator.generateMsciWorldLikeMonths(
-                                MONTHS_65Y,
-                                0.09,   // 9 % p.a.
-                                40,     // Kalibrierung
-                                42L     // Seed
-                        )
-                )
-                .aktiv(true)
-                .build();
-    }
+    /**
+     * Helper: nimmt Werte als String-Liste im DE-Format (Komma) und parsed zu BigDecimal.
+     * Beispiel: "0,01039413" -> 0.01039413
+     */
+    public static List<BigDecimal> parseGermanDecimalLines(String rawLines) {
+        if (rawLines == null || rawLines.isBlank()) return List.of();
 
-    private static BigDecimal annualToMonthly(BigDecimal annual) {
-        double r =
-                Math.pow(1.0 + annual.doubleValue(), 1.0 / 12.0) - 1.0;
-        return new BigDecimal(r, new MathContext(12, RoundingMode.HALF_UP));
-    }
+        String[] lines = rawLines.split("\\R+");
+        List<BigDecimal> out = new ArrayList<>(lines.length);
 
-    private static List<BigDecimal> fill(BigDecimal v, int months) {
-        List<BigDecimal> out = new ArrayList<>(months);
-        for (int i = 0; i < months; i++) out.add(v);
+        for (String line : lines) {
+            String s = line.trim();
+            if (s.isEmpty()) continue;
+
+            // deutsches Dezimal-Komma -> Punkt
+            s = s.replace(",", ".");
+
+            out.add(new BigDecimal(s));
+        }
         return out;
     }
 }

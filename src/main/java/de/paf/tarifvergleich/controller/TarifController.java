@@ -7,6 +7,7 @@ import de.paf.tarifvergleich.repository.TarifRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @RestController
@@ -17,36 +18,51 @@ public class TarifController {
     private final TarifRepository tarifRepository;
     private final KostenstrukturRepository kostenstrukturRepository;
 
-    // (optional) alte "alles"-Liste kannst du behalten – aber UI sollte sie NICHT nutzen
+    /**
+     * UI ruft: /api/tarife?beitragMonat=50&laufzeit=30
+     *
+     * Regeln:
+     * - Inaktive Tarife: NICHT anzeigen
+     * - Aktive Tarife: immer anzeigen
+     *   - wenn für (beitragMonat,laufzeit) eine aktive Kostenstruktur existiert -> auswählbar=true
+     *   - sonst -> auswählbar=false + Hinweis "keine Daten vorhanden"
+     * - Mindestbeitrag: wenn beitragMonat < tarif.mindestbeitragMonat -> auswählbar=false + Hinweis
+     */
     @GetMapping
-    public List<Tarif> getAll() {
-        return tarifRepository.findAll();
-    }
-
-    // ✅ NEU: nur Tarife, die für Beitrag+Laufzeit eine aktive Kostenstruktur haben UND Tarif aktiv ist
-    @GetMapping("/verfuegbar")
-    public List<TarifKurzDto> verfuegbar(
-            @RequestParam Integer beitrag,
+    public List<TarifKurzDto> listTarifeMitVerfuegbarkeit(
+            @RequestParam Integer beitragMonat,
             @RequestParam Integer laufzeit
     ) {
-        return kostenstrukturRepository
-                .findByBeitragMonatAndLaufzeitJahreAndAktivTrue(beitrag, laufzeit)
-                .stream()
-                .map(k -> k.getTarif())          // Tarif aus Kostenstruktur
-                .filter(t -> t.getAktiv() !=null && t.getAktiv())          // BEIDES: Tarif muss aktiv sein
-                .distinct()
-                .map(t -> new TarifKurzDto(
-                        t.getId(),
-                        t.getTarifName(),
-                        t.getTarifCode(),
-                        t.getAnbieter() != null ? t.getAnbieter().getName() : ""
-                ))
+        var aktiveTarife = tarifRepository.findByAktivTrueOrderByTarifNameAsc();
+
+        return aktiveTarife.stream()
+                .map(t -> toKurzDto(t, beitragMonat, laufzeit))
                 .toList();
     }
 
-    // optional: Debug endpoint (zeigt, ob überhaupt Kostenstrukturen existieren)
-    @GetMapping("/grid")
-    public Object grid(@RequestParam Integer beitrag, @RequestParam Integer laufzeit) {
-        return kostenstrukturRepository.findByBeitragMonatAndLaufzeitJahreAndAktivTrue(beitrag, laufzeit);
+    private TarifKurzDto toKurzDto(Tarif t, Integer beitragMonat, Integer laufzeit) {
+        boolean mindestOk = t.getMindestbeitragMonat() == null
+                || BigDecimal.valueOf(beitragMonat).compareTo(t.getMindestbeitragMonat()) >= 0;
+
+        boolean hatKostenstruktur = kostenstrukturRepository
+                .existsByTarif_IdAndBeitragMonatAndLaufzeitJahreAndAktivTrue(t.getId(), beitragMonat, laufzeit);
+
+        boolean auswählbar = mindestOk && hatKostenstruktur;
+
+        String hinweis = null;
+        if (!mindestOk) {
+            hinweis = "Mindestbeitrag nicht erreicht";
+        } else if (!hatKostenstruktur) {
+            hinweis = "keine Daten vorhanden";
+        }
+
+        return new TarifKurzDto(
+                t.getId(),
+                t.getTarifName(),
+                t.getTarifCode(),
+                t.getAnbieter() != null ? t.getAnbieter().getName() : "",
+                auswählbar,
+                hinweis
+        );
     }
 }

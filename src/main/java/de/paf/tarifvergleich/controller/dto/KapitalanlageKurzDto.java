@@ -5,5 +5,5 @@ import de.paf.tarifvergleich.domain.KapitalanlageTyp;
 public record KapitalanlageKurzDto(
         Long id,
         String name,
-        KapitalanlageTyp typ
+        String typ
 ) {}

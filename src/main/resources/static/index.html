@@ -1,364 +1,787 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <title>Tarifvergleich Altersvorsorge</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Tarifvergleich</title>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f4f6f8; }
-        .topbar { background:#111827; color:#fff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; }
-        .brand { font-size:18px; font-weight:700; }
-        .actions { display:flex; gap:10px; align-items:center; }
-        .actions .btn { background:#2563eb; color:#fff; text-decoration:none; padding:8px 12px; border-radius:6px; font-size:14px; display:inline-block; }
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #fafafa; color: #111; }
 
-        header.sub { background:#1f2937; color:white; padding:10px 20px; font-size:16px; }
+        header {
+            padding: 16px 18px;
+            border-bottom: 1px solid #e6e6e6;
+            background: #fff;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
 
-        .tabs { display:flex; background:#e5e7eb; padding:5px; }
-        .tab { padding:8px 12px; margin-right:5px; background:#d1d5db; border-radius:4px; cursor:pointer; display:flex; align-items:center; gap:6px; }
-        .tab.active { background:white; font-weight:bold; }
-        .tab button { border:none; background:transparent; cursor:pointer; color:red; font-weight:bold; }
-        .add-tab { padding:8px 12px; cursor:pointer; background:#2563eb; color:white; border-radius:4px; font-weight:bold; }
+        header .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        header h1 { margin: 0; font-size: 18px; }
+        header a { text-decoration: none; color: #1a73e8; font-weight: 600; }
 
-        .content { padding:20px; }
-        .grid { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
-        .box { background:white; padding:15px; border-radius:6px; }
-        .box h3 { margin-top:0; }
+        main { padding: 18px; max-width: 1400px; margin: 0 auto; }
 
-        .form-group { margin-bottom:10px; }
-        label { display:block; font-size:14px; margin-bottom:4px; }
+        .card { background: #fff; border: 1px solid #e6e6e6; border-radius: 12px; padding: 14px; margin-bottom: 14px; }
 
-        input, select { width:100%; padding:6px; box-sizing:border-box; }
+        .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px; }
+        .col-3 { grid-column: span 3; }
+        .col-4 { grid-column: span 4; }
+        .col-6 { grid-column: span 6; }
+        .col-12 { grid-column: span 12; }
 
-        .tarif-list label { display:block; margin:6px 0; }
+        @media (max-width: 980px) { .col-3,.col-4,.col-6 { grid-column: span 12; } }
 
-        .hint { font-size:13px; color:#6b7280; margin-top:8px; }
+        label { display: block; font-size: 12px; opacity: .75; margin-bottom: 6px; }
 
-        .chart-container { margin-top:30px; background:white; padding:15px; border-radius:6px; }
-        button { padding:8px 12px; border:none; border-radius:6px; cursor:pointer; }
-        .btn-secondary { background:#e5e7eb; }
-        .btn-primary { background:#2563eb; color:#fff; }
-        .row { display:flex; gap:10px; }
-        .row > * { flex:1; }
-        .error { color:#b91c1c; margin-top:8px; font-size:13px; }
-        .success { color:#065f46; margin-top:8px; font-size:13px; }
+        input, select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px 10px;
+            border: 1px solid #d0d0d0;
+            border-radius: 10px;
+            background: #fff;
+            outline: none;
+        }
+
+        input:focus, select:focus { border-color: #7aa7ff; box-shadow: 0 0 0 3px rgba(70,130,255,0.15); }
+
+        .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+        button {
+            padding: 10px 12px;
+            border: 1px solid #cfcfcf;
+            background: #fff;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+        button:hover { filter: brightness(0.98); }
+
+        .muted { opacity: .75; font-size: 12px; }
+
+        .tarife {
+            max-height: 220px;
+            overflow: auto;
+            border: 1px solid #e2e2e2;
+            border-radius: 10px;
+            padding: 8px;
+            background: #fcfcfc;
+        }
+        .tarif-item { display: flex; gap: 10px; align-items: center; padding: 6px 6px; border-radius: 8px; }
+        .tarif-item:hover { background: #f2f6ff; }
+        .tarif-item input { width: auto; }
+
+        .chart-wrap { height: 360px; }
+
+        /* ===== Tabelle sticky + scroll ===== */
+        #resultsTableWrapper {
+            margin-top: 12px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #fff;
+        }
+        #resultsTableWrapper .table-scroll {
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: 520px;
+        }
+        #resultsTableWrapper table {
+            width: max-content;
+            min-width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        #resultsTableWrapper thead th {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+            background: #f7f7f7;
+            border-bottom: 1px solid #ccc;
+            padding: 10px 8px;
+            white-space: nowrap;
+        }
+        #resultsTableWrapper thead tr:first-child th {
+            background: #f0f0f0;
+            z-index: 4;
+            font-weight: 700;
+        }
+        #resultsTableWrapper td {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            white-space: nowrap;
+        }
+        #resultsTableWrapper tbody tr:nth-child(even) td { background: #fcfcfc; }
+
+        /* Sticky left columns */
+        #resultsTableWrapper .sticky-col-1,
+        #resultsTableWrapper .sticky-col-2 {
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            background: #fff;
+        }
+        #resultsTableWrapper .sticky-col-2 { left: 80px; } /* wird per JS gesetzt */
+        #resultsTableWrapper thead .sticky-col-1,
+        #resultsTableWrapper thead .sticky-col-2 {
+            z-index: 6;
+            background: #f0f0f0;
+        }
+        #resultsTableWrapper .sticky-shadow { box-shadow: 2px 0 0 rgba(0,0,0,0.06); }
+
+        .text-left { text-align: left; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+
+        #resultsTableWrapper tbody tr:hover td { background: #f3f8ff; }
+
+        #resultsTableWrapper td.col-hover,
+        #resultsTableWrapper th.col-hover {
+            outline: 2px solid rgba(30, 120, 255, 0.35);
+            outline-offset: -2px;
+        }
+
+        #resultsControls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+        #resultsControls button {
+            padding: 8px 10px;
+            border: 1px solid #ccc;
+            background: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        #resultsControls button:hover { background: #f6f6f6; }
+
+        .error {
+            color: #b00020;
+            background: #fff0f2;
+            border: 1px solid #ffd2d8;
+            padding: 10px;
+            border-radius: 10px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 
 <body>
-
-<header class="topbar">
-    <div class="brand">Tarifvergleich</div>
-    <div class="actions">
-        <a class="btn" href="/admin.html">Admin</a>
+<header>
+    <div class="row">
+        <h1>Tarifvergleich</h1>
+        <a href="admin.html">Admin</a>
     </div>
 </header>
 
-<header class="sub">
-    Tarifvergleich – Altersvorsorge
-</header>
+<main>
 
-<div class="tabs" id="tabs">
-    <div class="tab active" onclick="switchTab(0)">Berechnung 1</div>
-    <div class="add-tab" onclick="addTab()">+</div>
-</div>
-
-<div class="content" id="content">
-    <div class="grid">
-        <div class="box">
-            <h3>Parameter</h3>
-
-            <div class="form-group">
-                <label for="einstiegsalter">Einstiegsalter</label>
-                <input id="einstiegsalter" type="number" value="30" min="0" max="100">
+    <div class="card">
+        <div class="grid">
+            <div class="col-3">
+                <label>Beitrag / Monat (EUR)</label>
+                <select id="beitragMonat"></select>
             </div>
 
-            <div class="row">
-                <div class="form-group">
-                    <label for="laufzeitSelect">Laufzeit (Jahre)</label>
-                    <select id="laufzeitSelect"></select>
+            <div class="col-3">
+                <label>Laufzeit (Jahre)</label>
+                <select id="laufzeitJahre"></select>
+            </div>
+
+            <div class="col-3">
+                <label for="alter">Einstiegsalter</label>
+                <input id="alter" type="number" value="30" min="0" step="1">
+            </div>
+
+            <div class="col-3">
+                <label for="garantieModus">Garantiezins (Modus)</label>
+                <select id="garantieModus">
+                    <option value="OHNE_UEBERSCHUESSE">Ohne Überschüsse</option>
+                    <option value="MIT_UEBERSCHUESSEN">Mit Überschüsse</option>
+                </select>
+            </div>
+
+            <div class="col-6">
+                <label for="kapA">Kapitalanlage A</label>
+                <select id="kapA"></select>
+            </div>
+
+            <div class="col-6">
+                <label for="kapB">Kapitalanlage B (nur für Hybrid relevant)</label>
+                <select id="kapB"></select>
+            </div>
+
+            <div class="col-12">
+                <label>Tarife auswählen</label>
+                <div class="tarife" id="tarifList">
+                    <div class="muted">Lade Tarife…</div>
                 </div>
+            </div>
 
-                <div class="form-group">
-                    <label for="beitragSelect">Beitrag (€ / Monat)</label>
-                    <select id="beitragSelect"></select>
+            <div class="col-12">
+                <div class="actions">
+                    <button class="primary" id="btnCalc">Berechnen</button>
+                    <button type="button" id="btnSelectAll">Alle auswählen</button>
+                    <button type="button" id="btnSelectNone">Auswahl löschen</button>
+                    <span class="muted" id="status"></span>
                 </div>
+                <div id="errBox" class="error" style="display:none;"></div>
             </div>
-
-            <div class="row">
-                <div class="form-group">
-                    <label for="kapASelect">Kapitalanlage A</label>
-                    <select id="kapASelect"></select>
-                </div>
-                <div class="form-group">
-                    <label for="kapBSelect">Kapitalanlage B</label>
-                    <select id="kapBSelect"></select>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label for="fondswechsel1">Fondswechsel 1 (Jahr)</label>
-                <input id="fondswechsel1" type="number" placeholder="z.B. 10">
-            </div>
-
-            <div class="form-group">
-                <label for="fondswechsel2">Fondswechsel 2 (Jahr)</label>
-                <input id="fondswechsel2" type="number" placeholder="z.B. 20">
-            </div>
-
-            <div class="form-group">
-                <label for="steuersatzRente">Steuersatz Rente (%)</label>
-                <input id="steuersatzRente" type="number" placeholder="z.B. 20">
-            </div>
-
-            <div class="hint">Tarife werden rechts automatisch anhand Beitrag+Laufzeit gefiltert.</div>
-
-            <div style="margin-top:12px;">
-                <button class="btn-primary" onclick="berechnen()">Berechnen</button>
-                <div id="status" class="hint"></div>
-                <div id="error" class="error"></div>
-            </div>
-        </div>
-
-        <div class="box">
-            <h3>Tarife auswählen</h3>
-
-            <button class="btn-secondary" onclick="selectAllTarife()">Alle auswählen</button>
-
-            <div class="tarif-list" id="tarifList">
-                <div class="hint">Lade Tarife…</div>
-            </div>
-
-            <div class="hint" id="eligibleHint"></div>
         </div>
     </div>
 
-    <div class="chart-container">
-        <canvas id="chart"></canvas>
+    <div class="card">
+        <div class="chart-wrap">
+            <canvas id="chart"></canvas>
+        </div>
+
+        <div id="resultsSection" style="margin-top:24px;">
+            <div id="resultsControls">
+                <button type="button" id="btnExpandAll">Alle Tarife ausklappen</button>
+                <button type="button" id="btnCollapseAll">Alle Tarife einklappen</button>
+                <button type="button" id="btnExportCsv">CSV exportieren</button>
+                <span id="resultsHint" class="muted"></span>
+            </div>
+
+            <div id="resultsTableWrapper" style="margin-top:12px;"></div>
+        </div>
     </div>
-</div>
+
+</main>
 
 <script>
-    let chart;
+    async function apiGet(url) {
+        const r = await fetch(url, { headers: { "Accept": "application/json" }});
+        if (!r.ok) throw new Error(`Error: ${url} -> ${r.status}`);
+        return r.json();
+    }
 
-    const BEITRAG_WERTE = [25, 50, 75, 100, 125, 150, 175, 200];
-    const LAUFZEIT_WERTE = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65];
+    async function apiPost(url, body) {
+        const r = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify(body)
+        });
+        if (!r.ok) {
+            const text = await r.text();
+            throw new Error(`Error: ${url} -> ${r.status}\n${text}`);
+        }
+        return r.json();
+    }
 
-    function initChart() {
-        const ctx = document.getElementById('chart');
-        chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: []
-            },
+    function showError(msg) {
+        const box = document.getElementById("errBox");
+        box.style.display = "block";
+        box.textContent = msg;
+    }
+    function clearError() {
+        const box = document.getElementById("errBox");
+        box.style.display = "none";
+        box.textContent = "";
+    }
+
+    function escapeHtml(s) {
+        return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+            "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+        }[c]));
+    }
+
+    function fillSelectSteps(selectEl, min, max, step, defaultValue) {
+        selectEl.innerHTML = "";
+        for (let v = min; v <= max; v += step) {
+            const opt = document.createElement("option");
+            opt.value = String(v);
+            opt.textContent = String(v);
+            if (defaultValue != null && v === defaultValue) opt.selected = true;
+            selectEl.appendChild(opt);
+        }
+    }
+
+    // State
+    let kapitalanlagen = [];
+    let tarife = [];
+    let chartInstance = null;
+
+    const tableState = {
+        collapsedTarifIds: new Set(),
+        lastResults: null
+    };
+
+    window.addEventListener("DOMContentLoaded", async () => {
+        try {
+            // Dropdowns in 5er Schritten (wie besprochen)
+            fillSelectSteps(document.getElementById("beitragMonat"), 5, 200, 5, 50);
+            fillSelectSteps(document.getElementById("laufzeitJahre"), 20, 45, 5, 30);
+
+            await loadKapitalanlagen();
+            await loadTarife();
+            wireButtons();
+            document.getElementById("status").textContent = "Bereit.";
+        } catch (e) {
+            showError(String(e));
+        }
+    });
+
+    async function loadKapitalanlagen() {
+        kapitalanlagen = await apiGet("/api/kapitalanlagen");
+
+        const selA = document.getElementById("kapA");
+        const selB = document.getElementById("kapB");
+        selA.innerHTML = "";
+        selB.innerHTML = "";
+
+        // Optional: "leer" erlauben
+        const emptyA = document.createElement("option");
+        emptyA.value = "";
+        emptyA.textContent = "— auswählen —";
+        selA.appendChild(emptyA);
+
+        const emptyB = document.createElement("option");
+        emptyB.value = "";
+        emptyB.textContent = "— auswählen —";
+        selB.appendChild(emptyB);
+
+        for (const k of kapitalanlagen) {
+            const optA = document.createElement("option");
+            optA.value = k.id;
+            optA.textContent = k.name;
+            selA.appendChild(optA);
+
+            const optB = document.createElement("option");
+            optB.value = k.id;
+            optB.textContent = k.name;
+            selB.appendChild(optB);
+        }
+
+        // Defaults
+        const fantasy = kapitalanlagen.find(x => (x.name || "").toLowerCase().includes("fantasy"));
+        if (fantasy) selA.value = String(fantasy.id);
+
+        const rend3 = kapitalanlagen.find(x => (x.name || "").includes("3%"));
+        if (rend3) selB.value = String(rend3.id);
+    }
+
+    async function loadTarife() {
+        const beitrag = Number(document.getElementById("beitragMonat").value);
+        const laufzeit = Number(document.getElementById("laufzeitJahre").value);
+
+        tarife = await apiGet(`/api/tarife?beitragMonat=${beitrag}&laufzeit=${laufzeit}`);
+
+        const list = document.getElementById("tarifList");
+        list.innerHTML = "";
+
+        for (const t of tarife) {
+            const row = document.createElement("label");
+            row.className = "tarif-item";
+
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.value = t.id;
+
+            if (!t.verfuegbar) {
+                cb.disabled = true;
+                cb.checked = false;
+            } else {
+                cb.checked = true; // oder vorherige Auswahl merken (optional)
+            }
+
+            const suffix = t.verfuegbar ? "" : ` <span class="muted">– keine Daten vorhanden</span>`;
+
+            const text = document.createElement("div");
+            text.innerHTML = `
+      <div><b>${escapeHtml(t.tarifName)}</b> <span class="muted">(${escapeHtml(t.tarifCode||"")})</span>${suffix}</div>
+      <div class="muted">${escapeHtml(t.anbieterName||"")}</div>
+    `;
+
+            row.appendChild(cb);
+            row.appendChild(text);
+            list.appendChild(row);
+        }
+    }
+
+    function wireButtons() {
+        document.getElementById("btnCalc").addEventListener("click", onCalculate);
+
+        document.getElementById("btnSelectAll").onclick = () => {
+            document.querySelectorAll("#tarifList input[type=checkbox]").forEach(cb => cb.checked = true);
+        };
+        document.getElementById("btnSelectNone").onclick = () => {
+            document.querySelectorAll("#tarifList input[type=checkbox]").forEach(cb => cb.checked = false);
+        };
+
+        // Wenn Beitrag/Laufzeit geändert wird: Tarife neu laden
+        document.getElementById("beitragMonat").addEventListener("change", loadTarifeSafe);
+        document.getElementById("laufzeitJahre").addEventListener("change", loadTarifeSafe);
+
+        document.getElementById("btnExpandAll").onclick = () => {
+            tableState.collapsedTarifIds.clear();
+            renderResultsTable(tableState.lastResults);
+        };
+        document.getElementById("btnCollapseAll").onclick = () => {
+            tableState.collapsedTarifIds.clear();
+            for (const r of (tableState.lastResults || [])) tableState.collapsedTarifIds.add(r.tarifId);
+            renderResultsTable(tableState.lastResults);
+        };
+        document.getElementById("btnExportCsv").onclick = () => {
+            const csv = buildCsvFromCurrentState(tableState.lastResults);
+            downloadTextFile(csv, "tarifvergleich_ergebnisse.csv", "text/csv;charset=utf-8;");
+        };
+    }
+
+    async function loadTarifeSafe() {
+        try {
+            clearError();
+            await loadTarife();
+        } catch (e) {
+            showError(String(e));
+        }
+    }
+
+    async function onCalculate() {
+        clearError();
+        document.getElementById("status").textContent = "Berechne…";
+
+        try {
+            // WICHTIG: richtige IDs
+            const beitragMonat = Number(document.getElementById("beitragMonat").value);
+            const laufzeitJahre = Number(document.getElementById("laufzeitJahre").value);
+            const einstiegsalter = Number(document.getElementById("alter").value);
+
+            const kapAVal = document.getElementById("kapA").value;
+            const kapBVal = document.getElementById("kapB").value;
+            const kapitalanlageAId = kapAVal ? Number(kapAVal) : null;
+            const kapitalanlageBId = kapBVal ? Number(kapBVal) : null;
+
+            const garantieModus = document.getElementById("garantieModus").value;
+
+            const tarifIds = Array.from(document.querySelectorAll("#tarifList input[type=checkbox]"))
+                .filter(cb => cb.checked)
+                .map(cb => Number(cb.value));
+
+            if (tarifIds.length === 0) throw new Error("Bitte mindestens einen Tarif auswählen.");
+
+            const req = {
+                beitragMonat,
+                laufzeitJahre,
+                einstiegsalter,
+                kapitalanlageAId,
+                kapitalanlageBId,
+                garantieModus,
+                tarifIds
+            };
+
+            const results = await apiPost("/api/berechnung", req);
+
+            renderChart(results);
+            tableState.lastResults = results;
+            renderResultsTable(results);
+
+            document.getElementById("status").textContent = `Fertig. ${results.length} Tarif(e).`;
+        } catch (e) {
+            showError(String(e));
+            document.getElementById("status").textContent = "Fehler.";
+        }
+    }
+
+    // ===== Chart =====
+    function toNumber(v) {
+        if (v === null || v === undefined) return 0;
+        if (typeof v === "number") return v;
+        if (typeof v === "string") return Number(v.replace(",", "."));
+        return Number(v);
+    }
+
+    function formatEUR(v) {
+        const n = toNumber(v);
+        return n.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+    }
+
+    function renderChart(results) {
+        const ctx = document.getElementById("chart");
+
+        const labels = (results[0]?.wertentwicklung || []).map(w => `J${w.jahr}`);
+        const datasets = results.map((r) => ({
+            label: `${r.tarifName} (${r.tarifCode})`,
+            data: (r.wertentwicklung || []).map(w => toNumber(w.endkapital)),
+            tension: 0.15,
+            pointRadius: 0,
+            borderWidth: 2
+        }));
+
+        if (chartInstance) chartInstance.destroy();
+
+        chartInstance = new Chart(ctx, {
+            type: "line",
+            data: { labels, datasets },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: "index", intersect: false },
                 plugins: {
-                    legend: { display: true }
-                },
-                scales: {
-                    x: { title: { display: true, text: 'Jahre' } },
-                    y: { title: { display: true, text: 'Wert (€)' } }
+                    legend: { position: "bottom" },
+                    tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${formatEUR(item.raw)}` } }
                 }
             }
         });
     }
 
-    function setStatus(msg) {
-        document.getElementById('status').textContent = msg || '';
-    }
-    function setError(msg) {
-        document.getElementById('error').textContent = msg || '';
-    }
-
-    function selectAllTarife() {
-        document.querySelectorAll('#tarifList input[type="checkbox"]').forEach(cb => cb.checked = true);
+    // ===== Tabelle =====
+    function tdMoney(val) {
+        const td = document.createElement("td");
+        td.textContent = (val === null || val === undefined) ? "-" : formatEUR(val);
+        td.className = "text-right";
+        return td;
     }
 
-    function getSelectedBeitrag() {
-        return parseInt(document.getElementById('beitragSelect').value, 10);
-    }
-    function getSelectedLaufzeit() {
-        return parseInt(document.getElementById('laufzeitSelect').value, 10);
-    }
-    function getEinstiegsalter() {
-        return parseInt(document.getElementById('einstiegsalter').value, 10);
-    }
-    function getKapAId() {
-        return parseInt(document.getElementById('kapASelect').value, 10);
-    }
-    function getKapBId() {
-        return parseInt(document.getElementById('kapBSelect').value, 10);
-    }
+    function renderResultsTable(results) {
+        const wrapper = document.getElementById("resultsTableWrapper");
+        const hint = document.getElementById("resultsHint");
+        wrapper.innerHTML = "";
 
-    function getSelectedTarifIds() {
-        return Array.from(document.querySelectorAll('#tarifList input[type="checkbox"]:checked'))
-            .map(cb => parseInt(cb.value, 10));
-    }
-
-    function initDropdowns() {
-        const beitragSelect = document.getElementById('beitragSelect');
-        beitragSelect.innerHTML = '';
-        BEITRAG_WERTE.forEach(v => {
-            const opt = document.createElement('option');
-            opt.value = v;
-            opt.textContent = `${v} € / Monat`;
-            beitragSelect.appendChild(opt);
-        });
-        beitragSelect.value = "50";
-
-        const laufzeitSelect = document.getElementById('laufzeitSelect');
-        laufzeitSelect.innerHTML = '';
-        LAUFZEIT_WERTE.forEach(v => {
-            const opt = document.createElement('option');
-            opt.value = v;
-            opt.textContent = `${v} Jahre`;
-            laufzeitSelect.appendChild(opt);
-        });
-        laufzeitSelect.value = "30";
-
-        beitragSelect.addEventListener('change', loadTarifeVerfuegbar);
-        laufzeitSelect.addEventListener('change', loadTarifeVerfuegbar);
-    }
-
-    async function loadKapitalanlagen() {
-        const res = await fetch('/api/kapitalanlagen');
-        const anlagen = await res.json();
-
-        const a = document.getElementById('kapASelect');
-        const b = document.getElementById('kapBSelect');
-        a.innerHTML = '';
-        b.innerHTML = '';
-
-        anlagen.forEach(k => {
-            const optA = document.createElement('option');
-            optA.value = k.id;
-            optA.textContent = k.name;
-            a.appendChild(optA);
-
-            const optB = document.createElement('option');
-            optB.value = k.id;
-            optB.textContent = k.name;
-            b.appendChild(optB);
-        });
-
-        // Default: 9% falls vorhanden, sonst erste Option
-        const nine = anlagen.find(x => (x.name || '').includes("9%"));
-        if (nine) {
-            a.value = String(nine.id);
-            b.value = String(nine.id);
-        } else if (anlagen.length) {
-            a.value = String(anlagen[0].id);
-            b.value = String(anlagen[0].id);
-        }
-    }
-
-    async function loadTarifeVerfuegbar() {
-        setError('');
-        const beitrag = getSelectedBeitrag();
-        const laufzeit = getSelectedLaufzeit();
-
-        const res = await fetch(`/api/tarife/verfuegbar?beitrag=${beitrag}&laufzeit=${laufzeit}`);
-        const tarife = await res.json();
-
-        const list = document.getElementById('tarifList');
-        list.innerHTML = '';
-
-        if (!tarife.length) {
-            list.innerHTML = `<div style="color:#6b7280">Für diese Kombination sind keine Tarife aktiv verfügbar.</div>`;
+        if (!results || results.length === 0) {
+            wrapper.textContent = "Keine Ergebnisse.";
+            hint.textContent = "";
             return;
         }
 
-        tarife.forEach(t => {
-            const label = document.createElement('label');
-            label.innerHTML = `<input type="checkbox" value="${t.id}"> ${t.tarifName} (${t.tarifCode})`;
-            list.appendChild(label);
-        });
-    }
+        const collapsedCount = results.filter(r => tableState.collapsedTarifIds.has(r.tarifId)).length;
+        hint.textContent = collapsedCount > 0
+            ? `${collapsedCount} Tarif(e) eingeklappt (zeigen nur Endkapital).`
+            : `Alle Tarife ausgeklappt.`;
 
-    async function berechnen() {
-        setError('');
-        setStatus('Berechne…');
+        const scroll = document.createElement("div");
+        scroll.className = "table-scroll";
+        wrapper.appendChild(scroll);
 
-        const beitragMonat = getSelectedBeitrag();
-        const laufzeitJahre = getSelectedLaufzeit();
-        const einstiegsalter = getEinstiegsalter();
-        const kapitalanlageAId = getKapAId();
-        const kapitalanlageBId = getKapBId();
-        const tarifIds = getSelectedTarifIds();
+        const years = results[0].wertentwicklung.map(w => w.jahr);
 
-        if (!tarifIds.length) {
-            setStatus('');
-            setError('Bitte mindestens einen Tarif auswählen.');
-            return;
+        const mapByTarif = new Map();
+        for (const r of results) {
+            const m = new Map();
+            for (const w of r.wertentwicklung) m.set(w.jahr, w);
+            mapByTarif.set(r.tarifId, m);
         }
 
-        const payload = {
-            beitragMonat,
-            laufzeitJahre,
-            einstiegsalter,
-            kapitalanlageAId,
-            kapitalanlageBId,
-            tarifIds
-        };
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
 
-        try {
-            const res = await fetch('/api/berechnung', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+        const tr1 = document.createElement("tr");
 
-            if (!res.ok) {
-                const txt = await res.text();
-                throw new Error(`HTTP ${res.status}: ${txt}`);
+        const thJahr = document.createElement("th");
+        thJahr.textContent = "Jahr";
+        thJahr.rowSpan = 2;
+        thJahr.className = "sticky-col-1 text-left sticky-shadow";
+        tr1.appendChild(thJahr);
+
+        const thSum = document.createElement("th");
+        thSum.textContent = "Summe Einzahlungen";
+        thSum.rowSpan = 2;
+        thSum.className = "sticky-col-2 text-right sticky-shadow";
+        tr1.appendChild(thSum);
+
+        for (const r of results) {
+            const collapsed = tableState.collapsedTarifIds.has(r.tarifId);
+
+            const thTarif = document.createElement("th");
+            thTarif.colSpan = collapsed ? 1 : 4;
+            thTarif.className = "text-center";
+
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = collapsed ? "▶" : "▼";
+            btn.title = collapsed ? "Tarif ausklappen" : "Tarif einklappen";
+            btn.style.marginRight = "8px";
+            btn.style.padding = "4px 8px";
+            btn.style.borderRadius = "8px";
+            btn.style.border = "1px solid #ccc";
+            btn.style.background = "#fff";
+            btn.style.cursor = "pointer";
+            btn.onclick = () => {
+                if (tableState.collapsedTarifIds.has(r.tarifId)) tableState.collapsedTarifIds.delete(r.tarifId);
+                else tableState.collapsedTarifIds.add(r.tarifId);
+                renderResultsTable(tableState.lastResults);
+            };
+
+            const label = document.createElement("span");
+            label.textContent = `${r.tarifName} (${r.tarifCode})`;
+
+            thTarif.appendChild(btn);
+            thTarif.appendChild(label);
+            tr1.appendChild(thTarif);
+        }
+
+        const tr2 = document.createElement("tr");
+        for (const r of results) {
+            const collapsed = tableState.collapsedTarifIds.has(r.tarifId);
+            if (collapsed) {
+                const th = document.createElement("th");
+                th.textContent = "Kapital (Jahresende)";
+                th.className = "text-right";
+                tr2.appendChild(th);
+            } else {
+                const sub = [
+                    "Kapital (Jahresende)",
+                    "Topf 1 (Fonds)",
+                    "Topf 2 (Wertsicherung)",
+                    "Topf 3 (Deckungsstock)"
+                ];
+                for (const s of sub) {
+                    const th = document.createElement("th");
+                    th.textContent = s;
+                    th.className = "text-right";
+                    tr2.appendChild(th);
+                }
+            }
+        }
+
+        thead.appendChild(tr1);
+        thead.appendChild(tr2);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+
+        for (const year of years) {
+            const tr = document.createElement("tr");
+
+            const tdY = document.createElement("td");
+            tdY.textContent = String(year);
+            tdY.className = "sticky-col-1 text-left sticky-shadow";
+            tr.appendChild(tdY);
+
+            const w0 = mapByTarif.get(results[0].tarifId).get(year);
+            const tdSum = document.createElement("td");
+            tdSum.textContent = formatEUR(w0?.summeEinzahlungen);
+            tdSum.className = "sticky-col-2 text-right sticky-shadow";
+            tr.appendChild(tdSum);
+
+            for (const r of results) {
+                const w = mapByTarif.get(r.tarifId).get(year);
+                const collapsed = tableState.collapsedTarifIds.has(r.tarifId);
+
+                tr.appendChild(tdMoney(w?.endkapital));
+                if (!collapsed) {
+                    tr.appendChild(tdMoney(w?.topf1Fonds));
+                    tr.appendChild(tdMoney(w?.topf2Wertsicherungsfonds));
+                    tr.appendChild(tdMoney(w?.topf3Deckungsstock));
+                }
             }
 
-            const ergebnisse = await res.json();
-            setStatus(`OK: ${ergebnisse.length} Ergebnis(se).`);
-
-            renderChart(ergebnisse, laufzeitJahre);
-        } catch (e) {
-            setStatus('');
-            setError('Fehler bei Berechnung: ' + e.message);
+            tbody.appendChild(tr);
         }
-    }
 
-    function renderChart(ergebnisse, laufzeitJahre) {
-        // Labels: 0..laufzeit
-        const labels = [];
-        for (let y = 0; y <= laufzeitJahre; y++) labels.push(String(y));
+        table.appendChild(tbody);
+        scroll.appendChild(table);
 
-        // Datasets pro Tarif
-        const datasets = ergebnisse.map((r, idx) => {
-            const map = new Map();
-            (r.wertentwicklung || []).forEach(p => map.set(String(p.jahr), p.wert));
-
-            const data = labels.map(l => map.has(l) ? map.get(l) : null);
-
-            return {
-                label: `${r.tarifName} (${r.tarifCode})`,
-                data,
-                fill: false,
-                tension: 0.15
-            };
+        // Sticky Left Offset korrekt setzen
+        requestAnimationFrame(() => {
+            const firstHeader = thead.querySelector(".sticky-col-1");
+            if (!firstHeader) return;
+            const w1 = firstHeader.getBoundingClientRect().width;
+            wrapper.querySelectorAll(".sticky-col-2").forEach(el => el.style.left = `${w1}px`);
+            wrapper.querySelectorAll(".sticky-col-1").forEach(el => el.style.minWidth = "70px");
         });
 
-        chart.data.labels = labels;
-        chart.data.datasets = datasets;
-        chart.update();
+        attachColumnHover(table);
     }
 
-    function addTab() { alert("Weitere Reiter kommen später 🙂"); }
-    function switchTab(index) { /* Dummy */ }
+    function attachColumnHover(table) {
+        table.onmousemove = (e) => {
+            const cell = e.target.closest("td,th");
+            if (!cell) return;
+            const row = cell.parentElement;
+            if (!row) return;
+            const colIndex = [...row.children].indexOf(cell);
+            if (colIndex < 0) return;
 
-    // Initial
-    initChart();
-    initDropdowns();
-    loadKapitalanlagen();
-    loadTarifeVerfuegbar();
+            clearColHover(table);
+            for (const r of table.rows) {
+                if (r.children[colIndex]) r.children[colIndex].classList.add("col-hover");
+            }
+        };
+        table.onmouseleave = () => clearColHover(table);
+    }
+
+    function clearColHover(table) {
+        table.querySelectorAll(".col-hover").forEach(el => el.classList.remove("col-hover"));
+    }
+
+    function buildCsvFromCurrentState(results) {
+        if (!results || results.length === 0) return "";
+        const years = results[0].wertentwicklung.map(w => w.jahr);
+
+        const header = ["Jahr", "Summe Einzahlungen"];
+        for (const r of results) {
+            const collapsed = tableState.collapsedTarifIds.has(r.tarifId);
+            if (collapsed) {
+                header.push(`${r.tarifName} (${r.tarifCode}) - Endkapital`);
+            } else {
+                header.push(`${r.tarifName} (${r.tarifCode}) - Endkapital`);
+                header.push(`${r.tarifName} (${r.tarifCode}) - Topf1 Fonds`);
+                header.push(`${r.tarifName} (${r.tarifCode}) - Topf2 Wertsicherung`);
+                header.push(`${r.tarifName} (${r.tarifCode}) - Topf3 Deckungsstock`);
+            }
+        }
+
+        const lines = [];
+        lines.push(header.map(csvEscape).join(";"));
+
+        const byTarif = new Map();
+        for (const r of results) {
+            const m = new Map();
+            for (const w of r.wertentwicklung) m.set(w.jahr, w);
+            byTarif.set(r.tarifId, m);
+        }
+
+        for (const year of years) {
+            const row = [];
+            row.push(String(year));
+
+            const w0 = byTarif.get(results[0].tarifId).get(year);
+            row.push(csvNum(w0?.summeEinzahlungen));
+
+            for (const r of results) {
+                const w = byTarif.get(r.tarifId).get(year);
+                const collapsed = tableState.collapsedTarifIds.has(r.tarifId);
+
+                row.push(csvNum(w?.endkapital));
+                if (!collapsed) {
+                    row.push(csvNum(w?.topf1Fonds));
+                    row.push(csvNum(w?.topf2Wertsicherungsfonds));
+                    row.push(csvNum(w?.topf3Deckungsstock));
+                }
+            }
+            lines.push(row.map(csvEscape).join(";"));
+        }
+
+        return lines.join("\n");
+    }
+
+    function csvNum(v) {
+        if (v === null || v === undefined) return "";
+        const n = toNumber(v);
+        if (Number.isNaN(n)) return "";
+        return String(n);
+    }
+
+    function csvEscape(v) {
+        const s = String(v ?? "");
+        if (s.includes(";") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+    }
+
+    function downloadTextFile(content, filename, mime) {
+        const blob = new Blob([content], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
 </script>
 
 </body>

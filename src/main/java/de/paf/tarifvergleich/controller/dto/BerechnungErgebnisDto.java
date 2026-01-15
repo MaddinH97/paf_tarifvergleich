@@ -9,6 +9,6 @@ public record BerechnungErgebnisDto(
         String tarifCode,
         String anbieterName,
 
-        BigDecimal endwert,
-        List<WertpunktDto> wertentwicklung
+        BigDecimal endwert,                 // = Endkapital am Laufzeitende
+        List<WertpunktDto> wertentwicklung  // Jahreswerte inkl. Töpfe
 ) {}

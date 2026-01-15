@@ -7,5 +7,7 @@ import java.util.List;
 
 public interface KostenpunktRepository extends JpaRepository<Kostenpunkt, Long> {
 
+    List<Kostenpunkt> findByKostenstruktur_Id(Long kostenstrukturId);
+
     List<Kostenpunkt> findByKostenstruktur_IdAndAktivTrue(Long kostenstrukturId);
 }

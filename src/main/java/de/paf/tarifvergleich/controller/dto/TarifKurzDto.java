@@ -4,5 +4,7 @@ public record TarifKurzDto(
         Long id,
         String tarifName,
         String tarifCode,
-        String anbieterName
+        String anbieterName,
+        boolean verfuegbar,
+        String hinweis
 ) {}

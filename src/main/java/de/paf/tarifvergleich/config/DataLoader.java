@@ -1,8 +1,8 @@
 package de.paf.tarifvergleich.config;
 
-import de.paf.tarifvergleich.domain.*;
-import de.paf.tarifvergleich.repository.*;
-import de.paf.tarifvergleich.service.kapitalanlage.KapitalanlageFactory;
+import de.paf.tarifvergleich.domain.Kapitalanlage;
+import de.paf.tarifvergleich.domain.KapitalanlageTyp;
+import de.paf.tarifvergleich.repository.KapitalanlageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
@@ -17,255 +17,919 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DataLoader implements CommandLineRunner {
 
-    private final FondsRepository fondsRepository;
-    private final TarifRepository tarifRepository;
-    private final FinanzdienstleistungsunternehmenRepository unternehmenRepository;
-    private final KostenstrukturRepository kostenstrukturRepository;
     private final KapitalanlageRepository kapitalanlageRepository;
-
-    // optional (wenn du Kostenpunkte bereits nutzt)
-    private final KostenpunktRepository kostenpunktRepository;
 
     private static final int MONTHS_65Y = 65 * 12;
 
     @Override
     public void run(String... args) {
-
-        // WICHTIG: wir brechen nur ab, wenn wirklich schon Daten da sind
-        // (sonst erzeugen wir doppelt Einträge und laufen in Unique Constraints)
-        if (tarifRepository.count() > 0
-                || fondsRepository.count() > 0
-                || kapitalanlageRepository.count() > 0
-                || kostenstrukturRepository.count() > 0) {
+        // Idempotent: wenn Kapitalanlagen bereits da sind, nicht erneut seed-en
+        if (kapitalanlageRepository.count() > 0) {
             return;
         }
 
-        // ===== Kapitalanlagen =====
-        saveKapitalanlageIfMissing(KapitalanlageFactory.createFixed("3% Rendite", new BigDecimal("0.03")));
-        saveKapitalanlageIfMissing(KapitalanlageFactory.createFixed("6% Rendite", new BigDecimal("0.06")));
-        saveKapitalanlageIfMissing(KapitalanlageFactory.createFixed("9% Rendite", new BigDecimal("0.09")));
-        saveKapitalanlageIfMissing(KapitalanlageFactory.createFantasyMsciWorldLike()); // ~9% p.a. über 40 Jahre
+        // ===== FIXED Kapitalanlagen (3/6/9% p.a.) auf 65 Jahre =====
+        saveKapitalanlageIfMissing(createKapitalanlageFixed("3% Rendite", new BigDecimal("0.03")));
+        saveKapitalanlageIfMissing(createKapitalanlageFixed("6% Rendite", new BigDecimal("0.06")));
+        saveKapitalanlageIfMissing(createKapitalanlageFixed("9% Rendite", new BigDecimal("0.09")));
 
-        // ===== Anbieter =====
-        var anbieterA = unternehmenRepository.save(
-                Finanzdienstleistungsunternehmen.builder().name("Anbieter A").build()
-        );
-        var anbieterB = unternehmenRepository.save(
-                Finanzdienstleistungsunternehmen.builder().name("Anbieter B").build()
-        );
+        // ===== FantasyFonds aus deiner Monatsreihe (auf 65 Jahre verlängert) =====
+        List<BigDecimal> fantasyMonthly = parseGermanDecimalLines(FANTASY_FONDS_RENDITEN_RAW);
+        fantasyMonthly = extendToMonths(fantasyMonthly, MONTHS_65Y);
 
-        // ===== Fonds (dein Stand) =====
-        var f1 = fondsRepository.save(Fonds.builder()
-                .isin("DE000F000001")
-                .name("Global Growth")
-                .typ("Aktienfonds")
-                .risikoklasse("hoch")
-                .erwarteteRenditePa(new BigDecimal("0.06"))
-                .build());
+        Kapitalanlage fantasy = Kapitalanlage.builder()
+                .name("FantasyFonds")
+                // ⚠️ falls dein Enum anders heißt, hier anpassen (z.B. KapitalanlageTyp.FANTASY)
+                .typ(KapitalanlageTyp.FANTASY_FONDS)
+                .annualRate(null)
+                .monatlicheRenditen(fantasyMonthly)
+                .aktiv(true)
+                .build();
 
-        var f2 = fondsRepository.save(Fonds.builder()
-                .isin("DE000F000002")
-                .name("European Equity")
-                .typ("Aktienfonds")
-                .risikoklasse("hoch")
-                .erwarteteRenditePa(new BigDecimal("0.055"))
-                .build());
-
-        var f3 = fondsRepository.save(Fonds.builder()
-                .isin("DE000F000003")
-                .name("Nachhaltigkeit Welt")
-                .typ("Mischfonds")
-                .risikoklasse("mittel")
-                .erwarteteRenditePa(new BigDecimal("0.04"))
-                .build());
-
-        var f4 = fondsRepository.save(Fonds.builder()
-                .isin("DE000F000004")
-                .name("Defensiv Mix")
-                .typ("Mischfonds")
-                .risikoklasse("niedrig")
-                .erwarteteRenditePa(new BigDecimal("0.03"))
-                .build());
-
-        // ===== Tarife =====
-        // 1) Reine Fondspolice (nur Topf A)
-        var tarifFonds = tarifRepository.save(
-                Tarif.builder()
-                        .tarifName("Tarif FondsPur")
-                        .tarifCode("F-FONDS")
-                        .erscheinungsjahr(2020)
-                        .tarifTyp(TarifTyp.FONDS)
-                        .garantiezins(new BigDecimal("0.00")) // irrelevant
-                        .garantieModus(GarantieModus.OHNE_UEBERSCHUESSE)
-                        .minStartalter(18)
-                        .maxEndalter(67)
-                        .mindestbeitragMonat(new BigDecimal("25"))
-                        .aktiv(true)
-                        .anbieter(anbieterA)
-                        .fondsListe(List.of(f1, f3))
-                        .berechnungsScript("""
-                                // später Script: hier nur Platzhalter
-                                return beitrag;
-                                """)
-                        .build()
-        );
-
-        // 2) 2-Topf Hybrid (A + B)
-        var tarifHybrid2AB = tarifRepository.save(
-                Tarif.builder()
-                        .tarifName("Tarif Hybrid 2-Topf (A/B)")
-                        .tarifCode("H2-AB")
-                        .erscheinungsjahr(2021)
-                        .tarifTyp(TarifTyp.HYBRID_2_TOPF)
-                        .zweiterTopfTyp(TopfTyp.B)
-                        .garantiezins(new BigDecimal("0.00")) // irrelevant (weil zweiter Topf=B)
-                        .garantieModus(GarantieModus.OHNE_UEBERSCHUESSE)
-                        .minStartalter(18)
-                        .maxEndalter(67)
-                        .mindestbeitragMonat(new BigDecimal("50"))
-                        .aktiv(true)
-                        .anbieter(anbieterB)
-                        .fondsListe(List.of(f1, f2))
-                        .berechnungsScript("""
-                                // später Script: Platzhalter
-                                return beitrag;
-                                """)
-                        .build()
-        );
-
-        // 3) 2-Topf Hybrid (A + Garantie)
-        var tarifHybrid2AG = tarifRepository.save(
-                Tarif.builder()
-                        .tarifName("Tarif Hybrid 2-Topf (A/Garantie)")
-                        .tarifCode("H2-AG")
-                        .erscheinungsjahr(2022)
-                        .tarifTyp(TarifTyp.HYBRID_2_TOPF)
-                        .zweiterTopfTyp(TopfTyp.GARANTIE)
-                        .garantiezins(new BigDecimal("0.0125")) // 1.25% p.a.
-                        .garantieModus(GarantieModus.MIT_UEBERSCHUESSEN)
-                        .minStartalter(18)
-                        .maxEndalter(67)
-                        .mindestbeitragMonat(new BigDecimal("25"))
-                        .aktiv(true)
-                        .anbieter(anbieterA)
-                        .fondsListe(List.of(f1, f3, f4))
-                        .berechnungsScript("""
-                                // später Script: Platzhalter
-                                return beitrag;
-                                """)
-                        .build()
-        );
-
-        // 4) 3-Topf Hybrid (A + B + Garantie)
-        var tarifHybrid3 = tarifRepository.save(
-                Tarif.builder()
-                        .tarifName("Tarif Hybrid 3-Topf (A/B/Garantie)")
-                        .tarifCode("H3-ABG")
-                        .erscheinungsjahr(2023)
-                        .tarifTyp(TarifTyp.HYBRID_3_TOPF)
-                        .garantiezins(new BigDecimal("0.0100")) // 1.00% p.a.
-                        .garantieModus(GarantieModus.OHNE_UEBERSCHUESSE)
-                        .minStartalter(18)
-                        .maxEndalter(67)
-                        .mindestbeitragMonat(new BigDecimal("25"))
-                        .aktiv(true)
-                        .anbieter(anbieterB)
-                        .fondsListe(List.of(f1, f2, f3))
-                        .berechnungsScript("""
-                                // später Script: Platzhalter
-                                return beitrag;
-                                """)
-                        .build()
-        );
-
-        // ===== Kostenstrukturen (minimal, damit UI-Verfügbar-Filter sinnvoll ist) =====
-        // Wir legen für Beitrag=50 und Laufzeit=30 für alle Tarife eine aktive Kombi an
-        // (bei Mindestbeitrag 50 ist 25 nicht nötig)
-
-        createKs(tarifFonds, 25, 30, true);
-        createKs(tarifFonds, 50, 30, true);
-
-        createKs(tarifHybrid2AB, 50, 30, true);
-        createKs(tarifHybrid2AB, 100, 35, true);
-
-        createKs(tarifHybrid2AG, 25, 30, true);
-        createKs(tarifHybrid2AG, 50, 30, true);
-
-        createKs(tarifHybrid3, 25, 30, true);
-        createKs(tarifHybrid3, 50, 30, true);
-
-        // Optional: Beispiel-Kostenpunkte für eine der Kostenstrukturen (nur wenn du Kostenpunkte bereits nutzt)
-        // Wenn du es noch nicht nutzt, kannst du diesen Block löschen.
-        if (kostenpunktRepository != null) {
-            var ks = kostenstrukturRepository.findFirstByTarif_IdAndBeitragMonatAndLaufzeitJahreAndAktivTrue(
-                    tarifFonds.getId(), 50, 30
-            ).orElse(null);
-
-            if (ks != null && kostenpunktRepository.count() == 0) {
-                kostenpunktRepository.saveAll(List.of(
-                        Kostenpunkt.builder()
-                                .kostenstruktur(ks)
-                                .code("ABSCHLUSS_5J")
-                                .typ(KostenTyp.EURO)
-                                .basis(KostenBasis.FIX)
-                                .rhythmus(KostenRhythmus.VERTEILT_5_JAHRE)
-                                .wert(new BigDecimal("600.00"))
-                                .aktiv(true)
-                                .build(),
-                        Kostenpunkt.builder()
-                                .kostenstruktur(ks)
-                                .code("FIX_STUFE1")
-                                .typ(KostenTyp.EURO)
-                                .basis(KostenBasis.FIX)
-                                .rhythmus(KostenRhythmus.MONATLICH)
-                                .wert(new BigDecimal("2.00"))
-                                .gueltigVonMonat(1)
-                                .gueltigBisMonat(120)
-                                .aktiv(true)
-                                .build(),
-                        Kostenpunkt.builder()
-                                .kostenstruktur(ks)
-                                .code("GUTHABEN_PCT")
-                                .typ(KostenTyp.PROZENT)
-                                .basis(KostenBasis.KAPITAL)
-                                .rhythmus(KostenRhythmus.MONATLICH)
-                                .wert(new BigDecimal("0.60")) // 0.60% p.a. (wenn du ProzentPeriode=JAHRLICH nutzt)
-                                .prozentPeriode(ProzentPeriode.JAHRLICH)
-                                .minimumEuro(new BigDecimal("0.50"))
-                                .aktiv(true)
-                                .build()
-                ));
-            }
-        }
+        saveKapitalanlageIfMissing(fantasy);
     }
 
-    private void createKs(Tarif tarif, int beitrag, int laufzeit, boolean aktiv) {
-        kostenstrukturRepository.save(
-                Kostenstruktur.builder()
-                        .tarif(tarif)
-                        .beitragMonat(beitrag)
-                        .laufzeitJahre(laufzeit)
-                        .aktiv(aktiv)
-                        // alte Felder bleiben (können später entfernt werden)
-                        .abschlusskosten(BigDecimal.ZERO)
-                        .verwaltungskosten(BigDecimal.ZERO)
-                        .fondskosten(BigDecimal.ZERO)
-                        .risikokosten(BigDecimal.ZERO)
-                        .sonstigeKosten(BigDecimal.ZERO)
-                        .build()
-        );
-    }
+    // =========================================================
+    // Helpers
+    // =========================================================
 
     private void saveKapitalanlageIfMissing(Kapitalanlage k) {
         kapitalanlageRepository.findByName(k.getName())
                 .orElseGet(() -> kapitalanlageRepository.save(k));
     }
 
-    // Falls du die monthlyRateFromAnnual später wieder brauchst
-    @SuppressWarnings("unused")
+    private Kapitalanlage createKapitalanlageFixed(String name, BigDecimal annualRate) {
+        BigDecimal monthly = monthlyRateFromAnnual(annualRate);
+        return Kapitalanlage.builder()
+                .name(name)
+                .typ(KapitalanlageTyp.FIXED)
+                .annualRate(annualRate)
+                .monatlicheRenditen(fillConstantMonths(monthly, MONTHS_65Y))
+                .aktiv(true)
+                .build();
+    }
+
+    private List<BigDecimal> fillConstantMonths(BigDecimal monthlyRate, int months) {
+        List<BigDecimal> list = new ArrayList<>(months);
+        for (int i = 0; i < months; i++) {
+            list.add(monthlyRate);
+        }
+        return list;
+    }
+
+    /**
+     * r_month = (1 + r_year)^(1/12) - 1
+     */
     private BigDecimal monthlyRateFromAnnual(BigDecimal annualRate) {
         double rY = annualRate.doubleValue();
         double rM = Math.pow(1.0 + rY, 1.0 / 12.0) - 1.0;
         return new BigDecimal(rM, new MathContext(20, RoundingMode.HALF_UP));
     }
+
+    /**
+     * Parsed Textblock mit deutschem Dezimal-Komma:
+     * "0,01039413" -> BigDecimal("0.01039413")
+     */
+    private static List<BigDecimal> parseGermanDecimalLines(String rawLines) {
+        if (rawLines == null || rawLines.isBlank()) return List.of();
+
+        String[] lines = rawLines.split("\\R+");
+        List<BigDecimal> out = new ArrayList<>(lines.length);
+
+        for (String line : lines) {
+            String s = line.trim();
+            if (s.isEmpty()) continue;
+            s = s.replace(",", ".");
+            out.add(new BigDecimal(s));
+        }
+
+        return out;
+    }
+
+    /**
+     * Verlängert eine Monatsreihe zyklisch auf "months".
+     * (Wenn du später lieber "letzten Wert wiederholen" willst: sag Bescheid.)
+     */
+    private static List<BigDecimal> extendToMonths(List<BigDecimal> base, int months) {
+        if (base == null || base.isEmpty()) return List.of();
+
+        List<BigDecimal> out = new ArrayList<>(months);
+        for (int i = 0; i < months; i++) {
+            out.add(base.get(i % base.size()));
+        }
+        return out;
+    }
+
+    // =========================================================
+    // Deine Monatsrenditen (deutsches Komma)
+    // =========================================================
+
+    private static final String FANTASY_FONDS_RENDITEN_RAW = """
+0,01039413
+0,003448424
+0,004938982
+0,003586499
+0,004292273
+0,001956894
+0,00319632
+0,002374019
+0,005596335
+0,005092279
+0,002435371
+0,003490695
+0,007650608
+0,004051573
+0,004970184
+0,005810011
+0,004682335
+0,004516888
+0,005330637
+0,003514453
+0,003819774
+0,00233102
+0,006550345
+0,001978392
+0,005232781
+0,002762831
+0,003046766
+0,007394078
+0,003217641
+0,003930666
+0,003719593
+0,004241884
+0,005477188
+0,005214052
+0,00725477
+0,006443415
+0,006023905
+0,005323263
+0,004134414
+0,005206381
+0,006500952
+0,004237189
+0,001819153
+0,007020929
+0,003477206
+0,00536821
+0,003457915
+0,005818711
+0,005683583
+0,003886595
+0,003953861
+0,00378743
+0,004259132
+0,004267584
+0,007632986
+0,004188139
+0,004041255
+0,003855996
+0,003689281
+0,00448221
+0,006753686
+0,005620862
+0,003953446
+0,006914471
+0,003471346
+0,006393323
+0,00664153
+0,003677961
+0,004394085
+0,004331194
+0,004708251
+0,003136676
+0,008588004
+0,004181895
+0,003947506
+0,004635316
+0,005459269
+0,004338564
+0,003668564
+0,00741293
+0,006835734
+0,002652752
+0,007280685
+0,006033151
+0,008833346
+0,00699891
+0,004971728
+0,004793243
+0,004783979
+0,00567051
+0,002544241
+0,002643292
+0,004645254
+0,005956346
+0,003710229
+0,002416296
+0,00666826
+0,007244721
+0,007921896
+0,003752084
+0,006663026
+0,005745588
+0,001457183
+0,005812117
+0,003657751
+0,0067162
+0,004985964
+0,00373515
+0,003492695
+0,003885713
+0,00399209
+0,006516341
+0,004978719
+0,003493339
+0,005034048
+0,006344178
+0,005407921
+0,007114554
+0,007947856
+0,007627173
+0,005735007
+0,004409696
+0,004461245
+0,006299409
+0,004453864
+0,004174007
+0,005385727
+0,006615191
+0,00708924
+0,006610436
+0,004546238
+0,005691177
+0,007814481
+0,007344972
+0,006222764
+0,002448294
+0,007082588
+0,005369654
+0,006607983
+0,006989401
+0,005293926
+0,00405495
+0,004888826
+0,00704448
+0,006279085
+0,006124682
+0,005389464
+0,004567682
+0,006504071
+0,005104918
+0,005962325
+0,006451827
+0,007408868
+0,006011901
+0,005583812
+0,002378977
+0,006078756
+0,006069496
+0,004819081
+0,00386182
+0,008377987
+0,006087403
+0,005765594
+0,009216366
+0,004530797
+0,004436709
+0,005502684
+0,002301712
+0,006477101
+0,007300041
+0,004213331
+0,005680324
+0,002393971
+0,005501593
+0,008451346
+0,004129911
+0,007899298
+0,007453948
+0,006123966
+0,00662752
+0,006197726
+0,004006163
+0,002944236
+0,004221513
+0,007689199
+0,003421764
+0,004592031
+0,006311182
+0,003504552
+0,005035848
+0,007761854
+0,00533894
+0,006267874
+0,004934843
+0,007726844
+0,007356143
+0,00560581
+0,007352915
+0,005167768
+0,008731743
+0,005237084
+0,006774066
+0,007354023
+0,008370538
+0,00704155
+0,002718285
+0,002465007
+0,00787502
+0,008172689
+0,006776147
+0,006579172
+0,006190455
+0,005781444
+0,006557279
+0,007378793
+0,007443736
+0,008033896
+0,004850271
+0,007136878
+0,009286616
+0,006162987
+0,006360776
+0,008587775
+0,008433968
+0,006137264
+0,005381896
+0,008155435
+0,006629658
+0,006995637
+0,007917046
+0,010357464
+0,006668332
+0,009671916
+0,004444462
+0,006557123
+0,008584457
+0,009502036
+0,007543914
+0,006644974
+0,007195098
+0,009930668
+0,007526681
+0,007929654
+0,00803168
+0,008977233
+0,006593545
+0,007837199
+0,007231002
+0,006734746
+0,011006219
+0,008239883
+0,008308535
+0,007634322
+0,007948101
+0,006667222
+0,008180485
+0,010130632
+0,008370152
+0,00735956
+0,006085202
+0,007955165
+0,009693674
+0,006211554
+0,007769433
+0,010337799
+0,007362133
+0,006821434
+0,010033761
+0,006943781
+0,007310212
+0,010185027
+0,00760887
+0,007378878
+0,008156001
+0,007872608
+0,008757111
+0,008262842
+0,007703832
+0,007466784
+0,010067152
+0,007443321
+0,008190758
+0,011909955
+0,007764865
+0,011313908
+0,008288885
+0,010294336
+0,007580367
+0,007829276
+0,008016583
+0,009349285
+0,009595052
+0,013673678
+0,007744554
+0,008873918
+0,008448423
+0,010558927
+0,009821455
+0,009110378
+0,007921684
+0,009378112
+0,013128885
+0,008305509
+0,009949207
+0,009399767
+0,009440937
+0,005669208
+0,010527272
+0,007879931
+0,011721248
+0,012351317
+0,010957466
+0,01236318
+0,009779519
+0,007534621
+0,011705332
+0,01033304
+0,009503091
+0,014159708
+0,007328599
+0,00852765
+0,008536187
+0,01117592
+0,008766963
+0,010001776
+0,010296132
+0,011411185
+0,009969881
+0,01172446
+0,010096033
+0,013416187
+0,013899181
+0,011370457
+0,00804789
+0,00865803
+0,010344785
+0,011937046
+0,013658421
+0,012187279
+0,012578418
+0,012061466
+0,009755607
+0,013440788
+0,01385158
+0,012641595
+0,009556491
+0,012216866
+0,010186134
+0,010244473
+0,010946012
+0,012896637
+0,01240834
+0,012873519
+0,011231546
+0,011966743
+0,012709034
+0,011727034
+0,015836061
+0,011801063
+0,01155963
+0,012229275
+0,009825081
+0,013519983
+0,011034117
+0,009260677
+0,008773733
+0,013049386
+0,014334796
+0,011878143
+0,012371022
+0,01469347
+0,01421913
+0,012772986
+0,011864625
+0,012155725
+0,014143556
+0,010542615
+0,011363244
+0,012973918
+0,01145807
+0,013086403
+0,013839288
+0,011419143
+0,012097432
+0,014803007
+0,01416529
+0,01339498
+0,012009674
+0,013022731
+0,01244312
+0,012425924
+0,010195329
+0,016523939
+0,012518071
+0,01507188
+0,009000785
+0,01193017
+0,014631699
+0,014879047
+0,013672816
+0,013941172
+0,012635318
+0,012352398
+0,014772813
+0,014856744
+0,013331356
+0,016305746
+0,013828316
+0,014055803
+0,013414585
+0,012067989
+0,013089534
+0,013782048
+0,012308572
+0,01297996
+0,015432804
+0,013648131
+0,011895348
+0,013844346
+0,013766938
+0,011921962
+0,014184429
+0,013713909
+0,017568178
+0,013988556
+0,015266756
+0,016576969
+0,011761911
+0,017979224
+0,016358049
+0,016907148
+0,013389694
+0,013206476
+0,01693035
+0,014808606
+0,01630361
+0,014166024
+0,013659884
+0,012695066
+0,014220161
+0,014037588
+0,013668101
+0,017052558
+0,015917086
+0,016564543
+0,016784926
+0,016058171
+0,011451689
+0,013773173
+0,01383683
+0,018510102
+0,013710082
+0,013920701
+0,015604818
+0,015599537
+0,01612175
+0,017662188
+0,017780625
+0,013841233
+0,0146119
+0,016055289
+0,017844694
+0,016403218
+0,018129211
+0,016814411
+0,016643885
+0,015650677
+0,015508355
+0,019232922
+0,01618525
+0,018174628
+0,019655749
+0,017780359
+0,017848989
+0,017032416
+0,018223255
+0,018479944
+0,021857365
+0,018892407
+0,016976522
+0,018004336
+0,019606726
+0,021690645
+0,020738736
+0,01944224
+0,017650456
+0,018036103
+0,018664891
+0,020861702
+0,018512424
+0,01959836
+0,019066746
+0,021729532
+0,022399787
+0,020765212
+0,021788048
+0,021527228
+0,01679041
+0,021352909
+0,018918109
+0,020692474
+0,020251206
+0,020040153
+0,019998284
+0,021599596
+0,021867076
+0,022170369
+0,019179077
+0,0220121
+0,019122094
+0,022152728
+0,022282952
+0,019068387
+0,022678932
+0,022438838
+0,020570102
+0,019103862
+0,025473779
+0,023328014
+0,022635365
+0,021263456
+0,022653633
+0,02324524
+0,022824384
+0,024327301
+0,022603714
+0,023501476
+0,021610658
+0,024772381
+0,02349729
+0,023288101
+0,023855808
+0,024016201
+0,024900089
+0,026888132
+0,022733502
+0,025414799
+0,027428313
+0,024649201
+0,023458511
+0,026479277
+0,022556577
+0,028886716
+0,026323903
+0,026004419
+0,02380068
+0,02504852
+0,026282721
+0,026787281
+0,024973114
+0,027715478
+0,028199938
+0,027577038
+0,027936707
+0,024744117
+0,028563036
+0,027860126
+0,030909037
+0,027951697
+0,027084587
+0,027436603
+0,027758038
+0,029105705
+0,026994473
+0,027823536
+0,028035698
+0,028565099
+0,030851719
+0,028213846
+0,02730091
+0,027230464
+0,029345887
+0,026877805
+0,029920415
+0,028999529
+0,02677351
+0,027577351
+0,028947742
+0,029846144
+0,030636874
+0,028831805
+0,029553441
+0,032511762
+0,03015331
+0,032517534
+0,029757287
+0,030312788
+0,027611611
+0,031080146
+0,031287719
+0,032534148
+0,025562328
+0,027314568
+0,028038844
+0,029513318
+0,031877312
+0,030835254
+0,035535838
+0,029802678
+0,030320763
+0,029855311
+0,0303177
+0,031479791
+0,030171285
+0,032731874
+0,032650627
+0,033851209
+0,034611376
+0,02960927
+0,031315892
+0,031793219
+0,028650858
+0,029268204
+0,032333351
+0,029619583
+0,031648318
+0,034122196
+0,032801413
+0,030579433
+0,031725923
+0,031628946
+0,032725
+0,032338979
+0,032836188
+0,032764881
+0,029560594
+0,033035591
+0,030069956
+0,033938814
+0,032618774
+0,033831941
+0,029605884
+0,03517424
+0,03188577
+0,0334517
+0,034731781
+0,032891263
+0,03196391
+0,033691211
+0,03520891
+0,034662716
+0,031443722
+0,032123489
+0,033470842
+0,033757809
+0,035224366
+0,034669968
+0,033513416
+0,037798792
+0,036309843
+0,032518994
+0,034320884
+0,036493296
+0,034818759
+0,037158882
+0,036832469
+0,035372945
+0,037146463
+0,034917263
+0,035971568
+0,038220842
+0,034993386
+0,03490486
+0,036139978
+0,038800902
+0,039744993
+0,034771695
+0,036872751
+0,037557661
+0,035183382
+0,037422809
+0,037364672
+0,033868972
+0,034866563
+0,035967698
+0,037360686
+0,042195965
+0,039691403
+0,037939343
+0,037949807
+0,037041429
+0,041109989
+0,040853171
+0,041093445
+0,040816872
+0,043507187
+0,041222498
+0,043222214
+0,039220507
+0,041879056
+0,041524955
+0,040861749
+0,041969691
+0,041408328
+0,044033879
+0,044876909
+0,043546282
+0,043812537
+0,04595515
+0,043142702
+0,045221256
+0,04148716
+0,040668894
+0,043839642
+0,044432775
+0,044479464
+0,043014163
+0,044562944
+0,046548182
+0,044199747
+0,047019671
+0,045545429
+0,046710427
+0,049802749
+0,046901466
+0,044868304
+0,046587006
+0,048917974
+0,046141257
+0,048842561
+0,046282292
+0,046688006
+0,046818287
+0,049079202
+0,049422684
+0,048820188
+0,046781155
+0,047742791
+0,046477616
+0,050073637
+0,047045697
+0,050492808
+0,049758744
+0,050448893
+0,046800283
+0,049979136
+0,045672436
+0,049691165
+0,043346292
+0,050035614
+0,051260696
+0,051086804
+0,05366088
+0,052549356
+0,052312484
+0,050739558
+0,052304314
+0,052783435
+0,056570873
+0,056085939
+0,056291264
+0,05619862
+0,055155016
+0,054208912
+0,058745168
+0,056201155
+0,05654018
+0,057509593
+0,057270412
+0,057027029
+0,058389091
+0,056095083
+0,054475601
+0,057995938
+0,057057502
+0,055795996
+0,057863839
+0,053695731
+0,058993431
+0,057902208
+0,05959513
+0,0595948
+0,060372439
+0,058647645
+0,064406079
+0,063107169
+0,060504457
+0,066389391
+0,065771043
+0,063887575
+0,065322784
+0,069355749
+0,064065557
+0,062702507
+0,065436137
+0,06853096
+0,065943524
+0,066680327
+0,06976765
+0,068702163
+0,067993359
+0,068669546
+0,070348427
+0,073221003
+0,068895547
+0,071935326
+0,074968745
+0,076246032
+0,071535539
+0,073549728
+0,074076268
+0,075141016
+0,073438536
+0,072632883
+0,074793889
+0,075855293
+""";
 }

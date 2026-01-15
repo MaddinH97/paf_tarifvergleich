@@ -8,14 +8,17 @@ import java.util.Optional;
 
 public interface KostenstrukturRepository extends JpaRepository<Kostenstruktur, Long> {
 
-    List<Kostenstruktur> findByBeitragMonatAndLaufzeitJahreAndAktivTrue(
-            Integer beitragMonat,
-            Integer laufzeitJahre
-    );
+    List<Kostenstruktur> findByTarif_Id(Long tarifId);
 
     Optional<Kostenstruktur> findFirstByTarif_IdAndBeitragMonatAndLaufzeitJahreAndAktivTrue(
-            Long tarifId,
-            Integer beitragMonat,
-            Integer laufzeitJahre
+            Long tarifId, Integer beitragMonat, Integer laufzeitJahre
+    );
+
+    boolean existsByTarif_IdAndBeitragMonatAndLaufzeitJahreAndAktivTrue(
+            Long tarifId, Integer beitragMonat, Integer laufzeitJahre
+    );
+
+    List<Kostenstruktur> findByBeitragMonatAndLaufzeitJahreAndAktivTrue(
+            Integer beitragMonat, Integer laufzeitJahre
     );
 }
